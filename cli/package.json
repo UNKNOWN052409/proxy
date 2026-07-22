@@ -1,0 +1,24 @@
+{
+  "name": "kiro-proxy",
+  "version": "1.0.0",
+  "description": "Universal AI proxy CLI — run a local OpenAI-compatible proxy with Kiro, OpenCode, Codex, and more",
+  "type": "module",
+  "main": "cli.js",
+  "bin": {
+    "kiro-proxy": "./cli.js"
+  },
+  "scripts": {
+    "serve": "node cli.js serve",
+    "import": "node cli.js import",
+    "status": "node cli.js status"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "chalk": "^5.3.0",
+    "minimist": "^1.2.8"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
