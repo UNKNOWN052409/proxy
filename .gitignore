@@ -1,0 +1,14 @@
+node_modules/
+.next/
+*.local
+.env
+.env.local
+.env.production
+# Agent internal state
+.claude-flow/
+.omc/
+# SQLite database
+data/
+# OS junk
+Thumbs.db
+.DS_Store
