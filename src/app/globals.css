@@ -1,0 +1,201 @@
+/* Kiro Proxy — Deep Indigo/Amethyst Brand Theme */
+
+@import "tailwindcss";
+@import "material-symbols/outlined.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Hide icon ligature text until font is ready */
+.material-symbols-outlined { visibility: hidden; }
+.fonts-loaded .material-symbols-outlined { visibility: visible; }
+
+:root {
+  /* Brand scale (light) — Deep Amethyst / Indigo */
+  --color-brand-50: #f0efff;
+  --color-brand-100: #d4d2ff;
+  --color-brand-200: #b3afff;
+  --color-brand-300: #8f89ff;
+  --color-brand-400: #736cf8;
+  --color-brand-500: #5B52F5;
+  --color-brand-600: #4a41d6;
+  --color-brand-700: #3a32b0;
+  --color-brand-800: #2a2480;
+  --color-brand-900: #1a1652;
+
+  /* Accent — vibrant violet glow */
+  --color-accent-50: #fdf2ff;
+  --color-accent-100: #f7d4ff;
+  --color-accent-200: #f0adff;
+  --color-accent-300: #e77dff;
+  --color-accent-400: #d946ef;
+  --color-accent-500: #C026D3;
+  --color-accent-600: #a21caf;
+  --color-accent-700: #86198f;
+  --color-accent-800: #6b1473;
+  --color-accent-900: #4a0e4f;
+
+  --color-primary: var(--color-brand-500);
+  --color-primary-hover: var(--color-brand-600);
+
+  /* Surfaces & backgrounds (light) */
+  --color-bg: #FAFAFE;
+  --color-bg-alt: #F2F1FF;
+  --color-surface: #ffffff;
+  --color-surface-2: #f4f4f8;
+  --color-surface-3: #e8e7ef;
+  --color-sidebar: rgba(240, 239, 255, 0.85);
+
+  /* Borders */
+  --color-border: #e5e7eb;
+  --color-border-subtle: #f0eff5;
+
+  /* Text */
+  --color-text: #0a0a0f;
+  --color-text-main: #0a0a0f;
+  --color-text-muted: #6B7280;
+  --color-text-subtle: #9CA3AF;
+
+  /* Status */
+  --color-danger: #cf222e;
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-info: #3B82F6;
+
+  /* Radius */
+  --radius-brand: 10px;
+  --radius-brand-lg: 14px;
+
+  /* Shadows */
+  --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.04);
+  --shadow-warm: 0 2px 12px -2px rgba(91, 82, 245, 0.18);
+  --shadow-elevated: 0 12px 28px -4px rgba(30, 25, 70, 0.06);
+  --shadow-elev:
+    inset 0 1px 0 0 rgba(255,255,255,0.8),
+    0 1px 2px rgba(15,23,42,0.04),
+    0 12px 36px -8px rgba(30, 25, 70, 0.10);
+  --shadow-focus: 0 0 0 3px rgba(91, 82, 245, 0.18);
+  --shadow-glow: 0 0 20px rgba(91, 82, 245, 0.3);
+  --shadow-glow-intense: 0 0 30px rgba(91, 82, 245, 0.5);
+
+  color-scheme: light;
+}
+
+.dark {
+  /* Brand scale (dark) */
+  --color-brand-50: #1e1a3a;
+  --color-brand-100: #2a2470;
+  --color-brand-200: #3a32a0;
+  --color-brand-300: #4a41c8;
+  --color-brand-400: #5B52F5;
+  --color-brand-500: #7B73FF;
+  --color-brand-600: #9B95FF;
+  --color-brand-700: #b8b3ff;
+  --color-brand-800: #d4d2ff;
+  --color-brand-900: #edecff;
+
+  --color-primary: #7B73FF;
+  --color-primary-hover: #9B95FF;
+
+  /* Accent (dark) */
+  --color-accent-50: #1a0a1f;
+  --color-accent-100: #3a0e44;
+  --color-accent-200: #5c1473;
+  --color-accent-300: #7e1a9e;
+  --color-accent-400: #a21caf;
+  --color-accent-500: #C026D3;
+  --color-accent-600: #d946ef;
+  --color-accent-700: #e77dff;
+  --color-accent-800: #f0adff;
+  --color-accent-900: #fae1ff;
+
+  /* Surfaces (dark — deep neutral with indigo tint) */
+  --color-bg: #111118;
+  --color-bg-alt: #1a1a24;
+  --color-surface: #1e1e2a;
+  --color-surface-2: #28283a;
+  --color-surface-3: #32324a;
+  --color-sidebar: rgba(20, 20, 30, 0.85);
+
+  --color-border: #2e2e42;
+  --color-border-subtle: #22223a;
+
+  --color-text: #ededef;
+  --color-text-main: #ededef;
+  --color-text-muted: #9a9ab0;
+  --color-text-subtle: #6b6b88;
+
+  color-scheme: dark;
+}
+
+/* ============================================================
+   Animations
+   ============================================================ */
+@keyframes blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(20px, -30px) scale(1.05); }
+  50% { transform: translate(-15px, 20px) scale(0.95); }
+  75% { transform: translate(25px, 15px) scale(1.02); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(91, 82, 245, 0.2); }
+  50% { box-shadow: 0 0 40px rgba(91, 82, 245, 0.4); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-blob { animation: blob 18s infinite; }
+.animate-float { animation: float 6s ease-in-out infinite; }
+.animate-fadeIn { animation: fadeIn 0.5s ease-out; }
+.animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+.animate-slideUp { animation: slideUp 0.6s ease-out; }
+
+/* ============================================================
+   Scrollbar styling
+   ============================================================ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
+
+/* ============================================================
+   Base
+   ============================================================ */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background-color: var(--color-brand-500);
+  color: white;
+}
