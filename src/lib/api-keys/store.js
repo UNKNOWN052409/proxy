@@ -43,9 +43,17 @@ function initDatabase() {
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       last_used_at TEXT,
-      revoked_at TEXT
+      revoked_at TEXT,
+      owner_user_id INTEGER,
+      provider_ids TEXT NOT NULL DEFAULT '[]',
+      model_ids TEXT NOT NULL DEFAULT '[]'
     )
   `);
+    for (const statement of [
+      "ALTER TABLE api_keys ADD COLUMN owner_user_id INTEGER",
+      "ALTER TABLE api_keys ADD COLUMN provider_ids TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE api_keys ADD COLUMN model_ids TEXT NOT NULL DEFAULT '[]'",
+    ]) { try { db.exec(statement); } catch { /* existing column */ } }
 
   // Create indexes for performance
   db.exec(`
@@ -81,7 +89,7 @@ function getDatabase() {
  * @returns {Object} Created key metadata (without plain key)
  */
 export function createKey(keyData) {
-  const { key, name, created_at, expires_at } = keyData;
+  const { key, name, created_at, expires_at, owner_user_id = null, provider_ids = [], model_ids = [] } = keyData;
 
   if (!isValidKeyFormat(key)) {
     throw new Error('Invalid API key format');
@@ -92,11 +100,11 @@ export function createKey(keyData) {
 
   try {
     const stmt = db.prepare(`
-      INSERT INTO api_keys (name, key_hash, created_at, expires_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO api_keys (name, key_hash, created_at, expires_at, owner_user_id, provider_ids, model_ids)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
-    const result = stmt.run(name, keyHash, created_at, expires_at);
+    const result = stmt.run(name, keyHash, created_at, expires_at, owner_user_id, JSON.stringify(provider_ids), JSON.stringify(model_ids));
 
     return {
       id: result.lastInsertRowid,
@@ -104,7 +112,10 @@ export function createKey(keyData) {
       created_at,
       expires_at,
       last_used_at: null,
-      revoked_at: null,
+        revoked_at: null,
+      owner_user_id,
+      provider_ids,
+      model_ids,
     };
   } catch (error) {
     if (error.message.includes('UNIQUE constraint failed')) {
@@ -129,7 +140,7 @@ export function validateKey(key) {
   const db = getDatabase();
 
   const stmt = db.prepare(`
-    SELECT id, name, key_hash, created_at, expires_at, last_used_at, revoked_at
+    SELECT id, name, key_hash, created_at, expires_at, last_used_at, revoked_at, owner_user_id, provider_ids, model_ids
     FROM api_keys
     WHERE revoked_at IS NULL
   `);
@@ -178,6 +189,9 @@ export function validateKey(key) {
     created_at: matchedKey.created_at,
     expires_at: matchedKey.expires_at,
     last_used_at: new Date().toISOString(),
+    owner_user_id: matchedKey.owner_user_id ?? null,
+    provider_ids: JSON.parse(matchedKey.provider_ids || '[]'),
+    model_ids: JSON.parse(matchedKey.model_ids || '[]'),
   };
 }
 
@@ -227,7 +241,7 @@ export function listKeys({ includeRevoked = false, includeExpired = false } = {}
   const db = getDatabase();
 
   let query = `
-    SELECT id, name, created_at, expires_at, last_used_at, revoked_at
+    SELECT id, name, created_at, expires_at, last_used_at, revoked_at, owner_user_id, provider_ids, model_ids
     FROM api_keys
   `;
 
@@ -266,12 +280,14 @@ export function listKeys({ includeRevoked = false, includeExpired = false } = {}
 export function getKey(keyId) {
   const db = getDatabase();
   const stmt = db.prepare(`
-    SELECT id, name, created_at, expires_at, last_used_at, revoked_at
+    SELECT id, name, created_at, expires_at, last_used_at, revoked_at, owner_user_id, provider_ids, model_ids
     FROM api_keys
     WHERE id = ?
   `);
 
-  return stmt.get(keyId) || null;
+  const row = stmt.get(keyId) || null;
+  if (!row) return null;
+  return { ...row, owner_user_id: row.owner_user_id ?? null, provider_ids: JSON.parse(row.provider_ids || '[]'), model_ids: JSON.parse(row.model_ids || '[]') };
 }
 
 /**
