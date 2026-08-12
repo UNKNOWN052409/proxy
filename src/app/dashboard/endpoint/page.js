@@ -1,220 +1,135 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Card, Badge, Button, Toggle } from "@/components/shared";
+import { useEffect, useMemo, useState } from "react";
+import { Badge, Button, Card, Skeleton } from "@/components/shared";
+
+function CopyButton({ value, label = "Copy" }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  };
+  return <Button variant="outline" size="sm" icon={copied ? "check" : "content_copy"} onClick={copy}>{copied ? "Copied" : label}</Button>;
+}
 
 export default function EndpointPage() {
-  const [copied, setCopied] = useState(false);
-  const [port, setPort] = useState("20127");
-  const [corsEnabled, setCorsEnabled] = useState(true);
-  const [apiKey, setApiKey] = useState("");
-  const [tunnelUrl, setTunnelUrl] = useState(null);
-  const [tunnelEnabled, setTunnelEnabled] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [keys, setKeys] = useState([]);
+  const [keyName, setKeyName] = useState("Local development");
+  const [newKey, setNewKey] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    fetch("/api/config/tunnel")
-      .then(r => r.json())
-      .then(data => {
-        if (data.enabled && data.url) {
-          setTunnelUrl(data.url);
-          setTunnelEnabled(true);
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const baseUrl = useMemo(() => typeof window === "undefined" ? "http://localhost:20127/v1" : `${window.location.origin}/v1`, []);
 
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const load = async () => {
+    const [gatewayRes, keyRes] = await Promise.all([fetch("/api/gateway/status", { cache: "no-store" }), fetch("/api/keys", { cache: "no-store" })]);
+    const [gatewayData, keyData] = await Promise.all([gatewayRes.json(), keyRes.json()]);
+    setStatus(gatewayData);
+    setKeys(keyData.keys || []);
   };
 
-  const generateApiKey = () => {
-    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    let key = "kp-";
-    for (let i = 0; i < 32; i++) {
-      key += chars[Math.floor(Math.random() * chars.length)];
+  useEffect(() => { load().catch((cause) => setError(cause.message)); }, []);
+
+  const createKey = async () => {
+    setError(null);
+    setCreating(true);
+    try {
+      const response = await fetch("/api/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: keyName.trim() || "Gateway key", expiresInDays: 365 }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Could not create API key");
+      setNewKey(data.key);
+      setKeys((current) => [data.metadata, ...current]);
+    } catch (cause) {
+      setError(cause.message);
+    } finally {
+      setCreating(false);
     }
-    setApiKey(key);
   };
 
-  const localUrl = `http://localhost:${port}/v1`;
-  const externalUrl = tunnelUrl ? `${tunnelUrl}/v1` : null;
+  const clients = [
+    { name: "Generic OpenAI client", command: `OPENAI_BASE_URL=${baseUrl}\nOPENAI_API_KEY=<your-gateway-key>` },
+    { name: "OpenAI SDK", command: `base_url="${baseUrl}"\napi_key="<your-gateway-key>"` },
+    { name: "Any compatible desktop client", command: `Base URL: ${baseUrl}\nAPI key: <your-gateway-key>` },
+  ];
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-text-main">Endpoint</h1>
-        <p className="text-text-muted text-sm mt-1">Configure your proxy endpoint</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-text-main">Endpoint & Access</h1>
+          <p className="text-text-muted text-sm mt-1">Connect compatible clients with a real, revocable gateway API key.</p>
+        </div>
+        <Button variant="outline" size="sm" icon="refresh" onClick={() => load().catch((cause) => setError(cause.message))}>Refresh</Button>
       </div>
 
-      {/* Connection Details */}
-      <Card title="Connection Details" icon="link" subtitle="Use this in your AI tools">
-        <div className="space-y-4">
-          {/* Local URL */}
-          <div className="flex items-center justify-between p-4 rounded-xl bg-bg border border-border">
-            <div>
-              <div className="flex items-center gap-2">
-                <Badge variant="neutral" size="sm">Local</Badge>
-                <p className="text-xs text-text-subtle font-medium">Base URL</p>
-              </div>
-              <code className="text-sm text-text-main font-mono mt-1 block">{localUrl}</code>
-            </div>
-            <Button variant="outline" size="sm" icon={copied ? "check" : "content_copy"} onClick={() => copyToClipboard(localUrl)}>
-              {copied ? "Copied!" : "Copy"}
-            </Button>
-          </div>
+      {error && <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/20 text-sm text-red-300">{error}</div>}
 
-          {/* External URL (if tunnel active) */}
-          {externalUrl && (
-            <div className="flex items-center justify-between p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="success" size="sm">
-                    <span className="flex items-center gap-1">
-                      <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      Public
-                    </span>
-                  </Badge>
-                  <p className="text-xs text-text-subtle font-medium">External URL</p>
-                </div>
-                <code className="text-sm text-text-main font-mono mt-1 block">{externalUrl}</code>
-                <p className="text-xs text-text-muted mt-1">
-                  Accessible from anywhere. Someone could use your accounts if they get this URL.
-                </p>
-              </div>
-              <Button variant="outline" size="sm" icon="content_copy" onClick={() => copyToClipboard(externalUrl)}>
-                Copy
-              </Button>
-            </div>
-          )}
-
-          {/* API Key */}
-          <div className="flex items-center justify-between p-4 rounded-xl bg-bg border border-border">
-            <div>
-              <p className="text-xs text-text-subtle font-medium">API Key</p>
-              <code className="text-sm text-text-muted font-mono mt-1 block">
-                {apiKey ? apiKey : "Any value accepted (local proxy)"}
-              </code>
-            </div>
-            {apiKey ? (
-              <Button variant="outline" size="sm" icon="content_copy" onClick={() => copyToClipboard(apiKey)}>
-                Copy Key
-              </Button>
-            ) : (
-              <Button variant="ghost" size="sm" icon="add" onClick={generateApiKey}>
-                Generate
-              </Button>
-            )}
-          </div>
+      <Card title="Gateway URL" icon="link" subtitle="The OpenAI-compatible API base path">
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-bg border border-border">
+          <code className="flex-1 text-sm font-mono text-text-main truncate">{baseUrl}</code>
+          <CopyButton value={baseUrl} />
         </div>
-      </Card>
-
-      {/* External Access */}
-      <Card title="External Access" icon="public" subtitle="Make your proxy available globally">
-        <div className="space-y-4">
-          <p className="text-sm text-text-muted">
-            Enable public access so you can use the proxy from any device or share with your team.
-          </p>
-          <div className="flex items-center justify-between p-4 rounded-xl bg-bg border border-border">
-            <div className="flex items-center gap-3">
-              <span className={`size-3 rounded-full ${tunnelEnabled ? "bg-emerald-500 animate-pulse" : "bg-text-subtle"}`} />
-              <div>
-                <p className="text-sm font-medium text-text-main">{tunnelEnabled ? "Tunnel Active" : "Local Only"}</p>
-                {tunnelUrl && <code className="text-xs text-text-muted font-mono mt-0.5 block">{tunnelUrl}</code>}
-              </div>
-            </div>
-            <a href="/dashboard/settings">
-              <Button variant={tunnelEnabled ? "outline" : "primary"} size="sm" icon={tunnelEnabled ? "settings" : "power"}>
-                {tunnelEnabled ? "Manage" : "Enable"}
-              </Button>
-            </a>
-          </div>
-        </div>
-      </Card>
-
-      {/* Client Setup */}
-      <Card title="Client Setup" icon="terminal" subtitle="How to connect popular tools">
-        <div className="space-y-3">
+        <div className="grid sm:grid-cols-3 gap-3 mt-4">
           {[
-            { name: "Claude Code", local: `CLAUSE_CODE_BASE_URL=http://localhost:${port}/v1`, external: externalUrl ? `CLAUSE_CODE_BASE_URL=${externalUrl}` : null },
-            { name: "Codex CLI", local: `CODEX_BASE_URL=http://localhost:${port}/v1`, external: externalUrl ? `CODEX_BASE_URL=${externalUrl}` : null },
-            { name: "Cursor", local: `Open Settings → Models → Add http://localhost:${port}/v1`, external: externalUrl ? `Open Settings → Models → Add ${externalUrl}` : null },
-            { name: "Cline", local: `Open Settings → API Provider → OpenAI Compatible → URL: http://localhost:${port}/v1`, external: externalUrl ? `URL: ${externalUrl}` : null },
-            { name: "OpenClaw", local: `Open Settings → Endpoint → http://localhost:${port}/v1`, external: externalUrl ? `Endpoint → ${externalUrl}` : null },
-          ].map((tool, i) => (
-            <div key={i} className="p-3 rounded-lg bg-surface-2/50 border border-border">
-              <div className="flex items-center justify-between mb-2">
-                <Badge variant="neutral" size="sm">{tool.name}</Badge>
-                <span className="text-[10px] text-text-subtle">Local</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <code className="text-[11px] text-text-muted font-mono truncate">{tool.local}</code>
-                <Button variant="ghost" size="sm" icon="content_copy" onClick={() => copyToClipboard(tool.local)} />
-              </div>
-              {tool.external && (
-                <div className="mt-2 pt-2 border-t border-border">
-                  <div className="flex items-center justify-between mb-1">
-                    <Badge variant="success" size="xs">Public</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <code className="text-[11px] text-text-muted font-mono truncate">{tool.external}</code>
-                    <Button variant="ghost" size="sm" icon="content_copy" onClick={() => copyToClipboard(tool.external)} />
-                  </div>
-                </div>
-              )}
+            ["Provider status", status?.enabled ? "Ready" : "Not configured", status?.enabled ? "success" : "neutral"],
+            ["Enabled providers", String(status?.providers?.filter((provider) => provider.configured).length || 0), "brand"],
+            ["Available models", String((status?.providers || []).reduce((total, provider) => total + (provider.models?.length || 0), 0)), "neutral"],
+          ].map(([label, value, variant]) => (
+            <div key={label} className="p-3 rounded-lg bg-surface-2/50 border border-border">
+              <p className="text-xs text-text-subtle">{label}</p>
+              <Badge variant={variant} size="sm" className="mt-2">{value}</Badge>
             </div>
           ))}
         </div>
       </Card>
 
-      {/* Settings */}
-      <Card title="Settings" icon="tune" subtitle="Proxy configuration">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-text-main">CORS Enabled</p>
-              <p className="text-xs text-text-muted">Allow cross-origin requests</p>
+      <Card title="Create API Key" icon="key" subtitle="Keys are stored as hashes and the raw value is shown only once">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input value={keyName} onChange={(event) => setKeyName(event.target.value)} maxLength={100} className="flex-1 h-10 px-3 rounded-lg bg-surface border border-border text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-brand-500/30" placeholder="Key name" />
+          <Button variant="primary" icon="add" onClick={createKey} disabled={creating}>{creating ? "Creating…" : "Create key"}</Button>
+        </div>
+        {newKey && (
+          <div className="mt-4 p-4 rounded-xl bg-amber-500/5 border border-amber-500/25">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-amber-300">Save this key now</p>
+                <code className="block text-xs text-text-main font-mono mt-2 break-all">{newKey}</code>
+                <p className="text-xs text-text-muted mt-2">For security, it cannot be shown again after you leave this page.</p>
+              </div>
+              <CopyButton value={newKey} label="Copy key" />
             </div>
-            <Toggle enabled={corsEnabled} onChange={setCorsEnabled} />
           </div>
+        )}
+      </Card>
 
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-text-main">Port</p>
-              <p className="text-xs text-text-muted">Proxy server port</p>
-            </div>
-            <input
-              type="number"
-              value={port}
-              onChange={(e) => setPort(e.target.value)}
-              className="w-24 h-9 rounded-lg bg-surface border border-border text-text-main text-sm text-center font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-            />
-          </div>
+      <Card title="Client Setup" icon="terminal" subtitle="Use an API key from the section above; route models as provider-id/model-id">
+        <div className="space-y-3">
+          {clients.map((client) => <div key={client.name} className="p-3 rounded-lg bg-surface-2/50 border border-border">
+            <div className="flex items-center justify-between gap-2 mb-2"><Badge variant="neutral" size="sm">{client.name}</Badge><CopyButton value={client.command} /></div>
+            <pre className="text-[11px] text-text-muted font-mono whitespace-pre-wrap break-all">{client.command}</pre>
+          </div>)}
         </div>
       </Card>
 
-      {/* Test */}
-      <Card title="Test Connection" icon="check_circle" subtitle="Verify your proxy is working">
-        <div className="flex items-center justify-between p-4 rounded-xl bg-bg border border-border">
-          <div className="flex items-center gap-3">
-            <span className="size-3 rounded-full bg-emerald-500 animate-pulse" />
-            <div>
-              <p className="text-sm font-medium text-text-main">Proxy is Running</p>
-              <p className="text-xs text-text-muted">Server is active on port {port}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {externalUrl && (
-              <a href={`${externalUrl.replace(/\/v1$/, "")}/api/models`} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" icon="public">Test Public</Button>
-              </a>
-            )}
-            <a href={`http://localhost:${port}/api/models`} target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" size="sm" icon="open_in_new">Test</Button>
-            </a>
-          </div>
-        </div>
+      <Card title="Gateway Behavior" icon="tune" subtitle="Compatibility features and their execution boundaries">
+        {status ? <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          {[
+            ["Tool compatibility", "Non-tool models return validated tool-call objects for the connected client to execute.", "build"],
+            ["Vision fallback", "A configured vision provider can convert inline images into text descriptions for text-only models.", "visibility"],
+            ["Usage analytics", "Every gateway request contributes to the dashboard usage summaries.", "analytics"],
+            ["Security boundaries", "No cookie conversion, browser-session access, arbitrary tool execution, or traffic interception.", "shield"],
+          ].map(([title, description, icon]) => <div key={title} className="p-3 rounded-lg bg-bg border border-border"><span className="material-symbols-outlined text-brand-400">{icon}</span><p className="text-sm text-text-main font-medium mt-2">{title}</p><p className="text-xs text-text-muted leading-relaxed mt-1">{description}</p></div>)}
+        </div> : <Skeleton variant="card" />}
+      </Card>
+
+      <Card title="Active Keys" icon="vpn_key" subtitle="Raw API-key values are never listed">
+        {keys.length === 0 ? <p className="text-sm text-text-muted py-3">No API keys created yet.</p> : <div className="space-y-2">{keys.slice(0, 8).map((key) => <div key={key.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-bg border border-border"><div><p className="text-sm text-text-main">{key.name}</p><p className="text-xs text-text-subtle mt-0.5">Expires {new Date(key.expires_at).toLocaleDateString()} · last used {key.last_used_at ? new Date(key.last_used_at).toLocaleString() : "never"}</p></div><Badge variant="success" size="sm">Active</Badge></div>)}</div>}
       </Card>
     </div>
   );

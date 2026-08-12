@@ -9,6 +9,7 @@ const navItems = [
   { href: "/dashboard", icon: "dashboard", label: "Dashboard" },
   { href: "/dashboard/accounts", icon: "key", label: "Accounts" },
   { href: "/dashboard/models", icon: "model_training", label: "Models" },
+  { href: "/dashboard/gateway", icon: "hub", label: "Gateway" },
   { href: "/dashboard/endpoint", icon: "api", label: "Endpoint" },
   { href: "/dashboard/import", icon: "file_download", label: "Import" },
   { href: "/dashboard/settings", icon: "settings", label: "Settings" },
@@ -73,8 +74,8 @@ export default function DashboardLayout({ children }) {
                 <span className="material-symbols-outlined text-[20px] text-white">bolt</span>
               </div>
               <div>
-                <h2 className="text-text-main font-bold text-sm">Kiro Proxy</h2>
-                <p className="text-text-subtle text-[10px]">v1.0.0</p>
+                <h2 className="text-text-main font-bold text-sm">AI Gateway</h2>
+                <p className="text-text-subtle text-[10px]">standards-compatible</p>
               </div>
             </Link>
           </div>

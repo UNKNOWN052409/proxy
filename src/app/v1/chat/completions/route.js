@@ -1,42 +1,32 @@
-/**
- * POST /v1/chat/completions — OpenAI-compatible chat completions
- */
+import { validateKey } from "@/lib/api-keys/store";
+import { executeGatewayChat } from "@/lib/gateway/service";
+import { createSingleSseResponse, corsHeaders, getBearerToken, gatewayError, openAiErrorResponse, validateChatRequest } from "@/lib/gateway/openai";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request) {
-  // Forward to internal proxy API
-  const body = await request.json();
-  const res = await fetch(new URL("/api/proxy/v1/chat/completions", request.url), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  try {
+    const token = getBearerToken(request);
+    if (!token) throw gatewayError("Missing Bearer API key", 401, "authentication_error", "missing_api_key");
+    if (!validateKey(token)) throw gatewayError("Invalid or expired API key", 401, "authentication_error", "invalid_api_key");
 
-  // Streaming response
-  if (body.stream) {
-    return new Response(res.body, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "Access-Control-Allow-Origin": "*",
-      },
-    });
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      throw gatewayError("Request body must contain valid JSON");
+    }
+    validateChatRequest(body);
+
+    const { completion } = await executeGatewayChat(body);
+    if (body.stream) return createSingleSseResponse(completion);
+    return Response.json(completion, { headers: corsHeaders() });
+  } catch (error) {
+    return openAiErrorResponse(error);
   }
-
-  const data = await res.json();
-  return Response.json(data, {
-    headers: { "Access-Control-Allow-Origin": "*" },
-  });
 }
 
 export async function OPTIONS() {
-  return new Response(null, {
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    },
-  });
+  return new Response(null, { status: 204, headers: corsHeaders() });
 }
