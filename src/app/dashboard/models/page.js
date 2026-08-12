@@ -43,6 +43,12 @@ export default function ModelsPage() {
   const [importReplace, setImportReplace] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [customApiKey, setCustomApiKey] = useState("");
+  const [customProviderId, setCustomProviderId] = useState("");
+  const [customLabel, setCustomLabel] = useState("");
+  const [detectingCustom, setDetectingCustom] = useState(false);
+  const [customResult, setCustomResult] = useState(null);
 
   useEffect(() => {
     fetchModels();
@@ -112,6 +118,48 @@ export default function ModelsPage() {
       setImportMessage(e.message || "Model import failed");
     } finally {
       setImporting(false);
+    }
+  };
+
+  const detectCustom = async () => {
+    setDetectingCustom(true);
+    setCustomResult(null);
+    try {
+      const res = await fetch("/api/gateway/providers", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "detect_custom", baseUrl: customBaseUrl, apiKey: customApiKey }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Detection failed");
+      setCustomResult(data.detection || data);
+      if (!customProviderId) setCustomProviderId((data.detection?.detectedType || "custom").replace(/[^a-z0-9_-]/gi, "-").toLowerCase());
+    } catch (error) {
+      setCustomResult({ error: error.message || "Detection failed" });
+    } finally {
+      setDetectingCustom(false);
+    }
+  };
+
+  const saveCustom = async () => {
+    setDetectingCustom(true);
+    try {
+      const res = await fetch("/api/gateway/providers", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save_custom", providerId: customProviderId, label: customLabel, baseUrl: customBaseUrl, apiKey: customApiKey, models: customResult?.models || [] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Custom provider save failed");
+      setCustomResult({ ...(customResult || {}), saved: true, providerId: data.providerId });
+      setCustomApiKey("");
+      await fetchGatewayProviders();
+    } catch (error) {
+      setCustomResult({ ...(customResult || {}), error: error.message || "Custom provider save failed" });
+    } finally {
+      setDetectingCustom(false);
     }
   };
 
@@ -190,6 +238,28 @@ export default function ModelsPage() {
           </div>
         </Card>
       )}
+
+      <Card>
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div>
+            <h2 className="text-sm font-semibold text-text-main">Custom authorized endpoint</h2>
+            <p className="text-xs text-text-muted mt-1">Enter a documented HTTPS/loopback API URL. We check OpenAPI, standard model catalogs, and safe auth evidence. No browser interception or cookie import.</p>
+          </div>
+          <span className="material-symbols-outlined text-brand-400">link</span>
+        </div>
+        <div className="grid md:grid-cols-2 gap-3">
+          <input value={customBaseUrl} onChange={(e) => setCustomBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm" />
+          <input value={customProviderId} onChange={(e) => setCustomProviderId(e.target.value)} placeholder="provider id, e.g. arena-v0" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm" />
+          <input value={customLabel} onChange={(e) => setCustomLabel(e.target.value)} placeholder="Display label (optional)" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm" />
+          <input type="password" value={customApiKey} onChange={(e) => setCustomApiKey(e.target.value)} placeholder="Authorized API key (not persisted by detection)" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm" />
+        </div>
+        <div className="flex flex-wrap items-center gap-3 mt-3">
+          <button onClick={detectCustom} disabled={detectingCustom || !customBaseUrl.trim()} className="h-9 px-4 rounded-lg bg-brand-500 text-white text-sm font-medium disabled:opacity-50">{detectingCustom ? "Detecting..." : "Auto-detect contract"}</button>
+          <button onClick={saveCustom} disabled={detectingCustom || !customBaseUrl.trim() || !customProviderId.trim() || !customApiKey.trim()} className="h-9 px-4 rounded-lg bg-surface-2 text-text-main border border-border text-sm font-medium disabled:opacity-50">Save provider</button>
+          {customResult && <span className="text-xs text-text-muted">{customResult.error || (customResult.saved ? `Saved ${customResult.providerId}` : `${customResult.detectedType || "unknown"} detected; ${customResult.models?.length || 0} model(s); ${customResult.evidence?.length || 0} evidence item(s)`)}</span>}
+        </div>
+        {customResult && !customResult.error && <p className="text-[11px] text-text-subtle mt-2">If detection is unknown, configure this as a manual custom OpenAI-compatible adapter using the returned base URL and explicit request/response contract. The detector never claims hidden endpoints.</p>}
+      </Card>
 
       {/* Search + Filter + Refresh */}
       <div className="flex flex-col sm:flex-row gap-3">

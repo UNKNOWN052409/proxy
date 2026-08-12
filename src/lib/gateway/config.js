@@ -3,7 +3,7 @@ import { getCredentialPoolStatus, markCredentialResult, selectCredential } from 
 import { getDedicatedProviderProfile, listDedicatedProviderProfiles } from "./providers/dedicated.js";
 
 const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "GITLAB_", "LOVABLE_", "KIRO_"];
-const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic", "gitlab", "bedrock"]);
+const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic", "gitlab", "bedrock", "custom"]);
 
 function splitModels(value) {
   if (Array.isArray(value)) return value.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim());

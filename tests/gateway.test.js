@@ -12,6 +12,7 @@ import { __testables as health } from "../src/lib/gateway/health.js";
 import { __testables as port, listenWithPortFallback } from "../src/lib/runtime/port.js";
 import { __testables as credentials } from "../src/lib/gateway/credentials.js";
 import { auditProviderEndpoint, detectLeakage, classifyIdentity, __testables as audit } from "../src/lib/gateway/audit.js";
+import { detectCustomEndpoint, normalizeCustomEndpointUrl } from "../src/lib/gateway/custom-endpoint.js";
 
 const tools = [{
   type: "function",
@@ -21,6 +22,28 @@ const tools = [{
     parameters: { type: "object", properties: { city: { type: "string" } }, required: ["city"] },
   },
 }];
+
+test("custom endpoint detection uses documented contracts and redacts sensitive headers", async () => {
+  assert.equal(normalizeCustomEndpointUrl("https://api.example.test/v1"), "https://api.example.test/v1");
+  assert.throws(() => normalizeCustomEndpointUrl("https://user:pass@example.test/v1"), /credentials/);
+  const responses = new Map([
+    ["https://api.example.test/v1/openapi.json", { status: 200, headers: new Headers({ "content-type": "application/json", "set-cookie": "secret" }), json: { info: { title: "OpenAI API" }, paths: { "/chat/completions": { post: {} } } } }],
+    ["https://api.example.test/v1/swagger.json", { status: 404, headers: new Headers({ "content-type": "application/json" }), json: {} }],
+    ["https://api.example.test/v1/v1/openapi.json", { status: 404, headers: new Headers({ "content-type": "application/json" }), json: {} }],
+    ["https://api.example.test/v1/v1/models", { status: 200, headers: new Headers({ "content-type": "application/json", "x-provider": "fixture" }), json: { data: [{ id: "model-a" }] } }],
+    ["https://api.example.test/v1/models", { status: 401, headers: new Headers({ "content-type": "application/json" }), json: { error: "unauthorized" } }],
+  ]);
+  const result = await detectCustomEndpoint({ baseUrl: "https://api.example.test/v1", apiKey: "secret", fetchImpl: async (url, options) => {
+    assert.equal(options.headers.authorization, "Bearer secret");
+    const item = responses.get(String(url));
+    return { status: item?.status || 404, headers: item?.headers || new Headers(), text: async () => JSON.stringify(item?.json || {}) };
+  } });
+  assert.equal(result.detectedType, "openai");
+  assert.deepEqual(result.models, ["model-a"]);
+  assert.ok(result.evidence.includes("documented_spec:/openapi.json"));
+  assert.ok(result.evidence.includes("model_catalog:/v1/models"));
+  assert.equal(result.checks.some((check) => check.headers?.authorization), false);
+});
 
 test("gateway provider config permits HTTPS and loopback HTTP only", () => {
   assert.equal(config.normalizeBaseUrl("https://api.example.test/v1", "example"), "https://api.example.test/v1");

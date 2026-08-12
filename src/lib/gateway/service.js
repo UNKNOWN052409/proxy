@@ -11,13 +11,13 @@ import { usageStore } from "../usage/store.js";
 function executorFor(provider) {
   if (provider.adapter === "gitlab" || provider.type === "gitlab") return executeGitLab;
   if (provider.type === "bedrock" || provider.adapter === "bedrock") return executeBedrock;
-  if (provider.type === "openai") return executeOpenAi;
+  if (provider.type === "openai" || provider.type === "custom") return executeOpenAi;
   if (provider.type === "anthropic") return executeAnthropic;
   throw gatewayError(`Unsupported provider type: ${provider.type}`, 400, "invalid_provider");
 }
 
 function visionExecutorFor(provider) {
-  if (provider.type === "openai") return describeImageWithOpenAi;
+  if (provider.type === "openai" || provider.type === "custom") return describeImageWithOpenAi;
   if (provider.type === "anthropic") return describeImageWithAnthropic;
   if (provider.type === "bedrock") return null;
   throw gatewayError(`Unsupported vision provider type: ${provider.type}`, 400, "invalid_provider");

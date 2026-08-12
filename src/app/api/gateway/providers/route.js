@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getGatewayProviders, getGatewayStatus } from "@/lib/gateway/config";
 import { getGatewayRuntimeState, importProviderModels, mergeProviderConfiguration, restoreGatewayRuntimeState, setProviderEnabled } from "@/lib/gateway/runtime-store";
 import { importEncryptedCredentials, listCredentialMetadata } from "@/lib/gateway/credentials";
+import { detectCustomEndpoint } from "@/lib/gateway/custom-endpoint";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,29 @@ export async function POST(request) {
   const action = String(body?.action || "import");
 
   try {
+    if (action === "detect_custom") {
+      const baseUrl = String(body.baseUrl || "").trim();
+      const apiKey = typeof body.apiKey === "string" ? body.apiKey : undefined;
+      const detection = await detectCustomEndpoint({ baseUrl, apiKey });
+      return NextResponse.json({ ok: true, detection });
+    }
+    if (action === "save_custom") {
+      const providerId = String(body.providerId || "").trim().toLowerCase();
+      const baseUrl = String(body.baseUrl || "").trim();
+      const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
+      if (!providerId || !baseUrl || !apiKey) return error("providerId, baseUrl, and an authorized API key are required");
+      const before = getGatewayRuntimeState();
+      const models = Array.isArray(body.models) ? body.models : [];
+      mergeProviderConfiguration({ providers: [{ id: providerId, label: body.label || providerId, type: "custom", adapter: "openai", baseUrl, models, supportsTools: body.supportsTools === true, supportsVision: body.supportsVision === true }] });
+      importEncryptedCredentials(providerId, [{ label: "custom-endpoint", apiKey }]);
+      try {
+        getGatewayProviders();
+      } catch (validationError) {
+        restoreGatewayRuntimeState(before);
+        throw validationError;
+      }
+      return NextResponse.json({ ok: true, providerId, status: getGatewayStatus() }, { status: 201 });
+    }
     if (action === "import") {
       const before = getGatewayRuntimeState();
       const results = mergeProviderConfiguration(body.providers);

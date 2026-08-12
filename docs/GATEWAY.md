@@ -252,3 +252,11 @@ The **Dashboard → Models** page now includes an **Import gateway models** pane
 The default mode merges imported IDs with the existing provider catalog. The optional **Replace existing catalog** mode replaces only that provider’s catalog. Model IDs may contain provider-supported punctuation such as `:`, `@`, `-`, `_`, and `.` but cannot contain whitespace or path separators. The import accepts model metadata identifiers only; it never accepts API keys, cookies, passwords, authorization headers, or OAuth secrets.
 
 The imported catalog is persisted with a source label and timestamp and appears in `/v1/models` alongside the provider’s configured models. Invalid input rolls back without changing the previous catalog.
+
+## Safe custom endpoint onboarding
+
+The Models dashboard includes an authenticated **Custom authorized endpoint** flow. Enter an HTTPS or loopback URL and, when authorized, an API key. The detector checks only documented contracts: OpenAPI or Swagger descriptions, standard model catalogs, response content type, authentication status, and redacted provider markers. It does not inspect browser traffic, discover hidden website routes, intercept third-party requests, import cookies, or convert session tokens.
+
+Run **Auto-detect contract** first. If the result is usable, **Save provider** stores the endpoint as a `custom` provider, routes it through the existing OpenAI-compatible adapter, and stores the supplied API key only in the encrypted credential pool. If detection is inconclusive, the operator can still provide an explicit documented request/response contract and save a manual OpenAI-compatible custom provider. The detector never claims that an undocumented `/v0` or web form endpoint is an API merely because a browser observed it.
+
+The custom provider is exposed through the gateway's normal `/v1/models` and `/v1/chat/completions` routes, subject to gateway API-key scopes, provider health, and configured model allowlists. The implementation intentionally excludes third-party MITM interception, cookie/session-to-API conversion, password scraping, hidden endpoint discovery, and arbitrary browser automation.
