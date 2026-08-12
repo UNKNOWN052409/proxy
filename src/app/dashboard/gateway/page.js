@@ -34,6 +34,14 @@ function healthBadge(provider) {
   return { variant: "neutral", label: "Not checked" };
 }
 
+function auditBadge(audit) {
+  if (!audit) return { variant: "neutral", label: "Not audited" };
+  if (audit.leakage?.passed === false) return { variant: "error", label: "Leak indicator" };
+  if (audit.identity?.verdict === "inconsistent") return { variant: "error", label: "Model mismatch" };
+  if (audit.proxyOverheadUnderTarget === false) return { variant: "warning", label: "Overhead > 1 ms" };
+  return { variant: "success", label: "Provisionally consistent" };
+}
+
 export default function GatewayPage() {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -131,6 +139,19 @@ export default function GatewayPage() {
     finally { setBusyProvider(null); }
   };
 
+  const runAudit = async (providerId) => {
+    setBusyProvider(`audit:${providerId}`);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/gateway/audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ providerId }) });
+      const result = await response.json();
+      if (!response.ok && !result.identity) throw new Error(result.error || "Endpoint audit failed");
+      setMessage({ type: result.leakage?.passed === false || result.identity?.verdict === "inconsistent" ? "warning" : "success", text: `${providerId}: ${result.identity?.verdict || "unknown"}; upstream ${result.upstreamLatencyMs ?? "?"} ms; proxy overhead ${result.proxyOverheadMs ?? "?"} ms` });
+      await refresh({ silent: true });
+    } catch (error) { setMessage({ type: "error", text: error.message || "Endpoint audit failed" }); }
+    finally { setBusyProvider(null); }
+  };
+
   const setEnabled = async (provider, enabled) => {
     setBusyProvider(provider.id);
     setMessage(null);
@@ -184,6 +205,8 @@ export default function GatewayPage() {
           return <div key={provider.id} className="p-4 rounded-xl bg-bg border border-border hover:border-brand-500/25 transition-colors"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-sm font-semibold text-text-main truncate">{provider.label}</p><p className="text-xs font-mono text-text-subtle mt-0.5 truncate">{provider.id} · {provider.type} · {provider.credentialPool?.count || 0} key{provider.credentialPool?.count === 1 ? "" : "s"}</p></div><Badge variant={badge.variant} size="sm">{badge.label}</Badge></div><div className="flex flex-wrap gap-2 mt-4"><Capability enabled={provider.supportsTools} icon="build" label={provider.supportsTools ? "Native tools" : "Tool bridge"} /><Capability enabled={provider.supportsVision || provider.visionProvider} icon="image" label={provider.supportsVision ? "Native vision" : provider.visionProvider ? "Vision fallback" : "Text only"} /><Capability enabled={modelCount > 0} icon="model_training" label={`${modelCount} model${modelCount === 1 ? "" : "s"}`} /></div><div className="mt-3 space-y-1 text-xs text-text-muted"><p>Default: <span className="font-mono text-text-main">{provider.defaultModel || "discover on refresh"}</span></p><p>Last check: {provider.health?.checkedAt ? new Date(provider.health.checkedAt).toLocaleString() : "not yet checked"}{provider.health?.latencyMs ? ` · ${provider.health.latencyMs} ms` : ""}</p>{provider.health?.message && <p className="text-amber-300">{provider.health.message}</p>}</div><div className="flex flex-wrap gap-2 mt-4"><Button variant="outline" size="sm" icon="sync" loading={busyProvider === provider.id} onClick={() => refreshProvider(provider.id)}>Test & refresh</Button><Button variant={provider.enabled ? "ghost" : "primary"} size="sm" icon={provider.enabled ? "pause_circle" : "play_circle"} loading={busyProvider === provider.id} onClick={() => setEnabled(provider, !provider.enabled)}>{provider.enabled ? "Disable" : "Enable"}</Button></div></div>;
         })}</div>}
       </Card>
+
+      <Card title="Endpoint audit" icon="policy" subtitle="Non-invasive evidence checks for advertised model identity, prompt-leak indicators, routing headers, and split latency."><div className="space-y-3">{providers.length === 0 ? <p className="text-sm text-text-muted">Configure a provider before running an audit.</p> : providers.map((provider) => { const badge = auditBadge(provider.audit); return <div key={provider.id} className="p-4 rounded-xl bg-bg border border-border"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-semibold text-text-main">{provider.label}</p><p className="text-xs text-text-muted mt-1">Advertised: <span className="font-mono text-text-main">{provider.audit?.advertisedModel || provider.defaultModel || "not configured"}</span></p></div><Badge variant={badge.variant} size="sm">{badge.label}</Badge></div>{provider.audit ? <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-2 mt-3 text-xs"><div className="p-2 rounded-lg bg-surface-2/50"><span className="text-text-subtle">Reported</span><p className="font-mono text-text-main truncate">{provider.audit.identity?.reportedModel || "not reported"}</p></div><div className="p-2 rounded-lg bg-surface-2/50"><span className="text-text-subtle">Leak indicators</span><p className={provider.audit.leakage?.passed ? "text-emerald-300" : "text-red-300"}>{provider.audit.leakage?.passed ? "None detected" : provider.audit.leakage?.findings?.join(", ")}</p></div><div className="p-2 rounded-lg bg-surface-2/50"><span className="text-text-subtle">Upstream</span><p className="text-text-main">{provider.audit.upstreamLatencyMs ?? "?"} ms</p></div><div className="p-2 rounded-lg bg-surface-2/50"><span className="text-text-subtle">Proxy overhead</span><p className={provider.audit.proxyOverheadUnderTarget ? "text-emerald-300" : "text-amber-300"}>{provider.audit.proxyOverheadMs ?? "?"} ms / target &lt;1 ms</p></div></div> : <p className="text-xs text-text-muted mt-3">No audit stored. This check sends a bounded exact-token probe and stores only metadata.</p>}<div className="flex items-center justify-between gap-3 mt-3"><p className="text-[11px] text-text-subtle">Black-box checks provide evidence, not proof of hidden backend identity.</p><Button variant="outline" size="sm" icon="policy" loading={busyProvider === `audit:${provider.id}`} disabled={!provider.configured} onClick={() => runAudit(provider.id)}>Run audit</Button></div></div>; })}</div></Card>
 
       <Card title="Daily model refresh" icon="update" subtitle="Model discovery is explicit, bounded, and does not scrape browser sessions."><div className="grid md:grid-cols-2 gap-3 text-sm"><div className="p-4 rounded-xl bg-surface-2/50 border border-border"><p className="font-medium text-text-main">Manual or deployment scheduler</p><p className="text-xs text-text-muted mt-1">Run the refresh command once daily through your server’s scheduled-task facility. This is the lightest option and uses no always-on job process.</p><code className="block mt-3 p-2 rounded bg-bg border border-border text-[11px]">npm run gateway:refresh-models</code></div><div className="p-4 rounded-xl bg-surface-2/50 border border-border"><p className="font-medium text-text-main">Dashboard-triggered refresh</p><p className="text-xs text-text-muted mt-1">Use “Refresh all models” after changing provider permissions or models. The result records health, latency, and a bounded model catalog.</p><p className="text-xs text-text-subtle mt-3">Last full refresh: {status?.lastRefreshAt ? new Date(status.lastRefreshAt).toLocaleString() : "never"}</p></div></div></Card>
 

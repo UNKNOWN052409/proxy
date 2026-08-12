@@ -160,6 +160,7 @@ export function getGatewayStatus() {
       health: runtime.health[provider.id] || { status: "unknown", checkedAt: null },
       lastModelRefresh: runtime.modelCatalog[provider.id]?.refreshedAt || null,
       catalogModelCount: runtime.modelCatalog[provider.id]?.models?.length || 0,
+      audit: runtime.audits[provider.id] || null,
     })),
     notifications: getGatewayNotifications(),
     lastRefreshAt: runtime.lastRefreshAt,
@@ -170,6 +171,7 @@ export function getGatewayStatus() {
       cookieImport: false,
       mergeOnlyConfigurationImport: true,
       providerHealthChecks: true,
+      endpointAudit: true,
     },
   };
 }

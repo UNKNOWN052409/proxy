@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
+import http from "node:http";
 
 import { __testables as config } from "../src/lib/gateway/config.js";
 import { parseClientManagedToolResponse } from "../src/lib/gateway/tools.js";
@@ -10,6 +11,7 @@ import { __testables as runtime } from "../src/lib/gateway/runtime-store.js";
 import { __testables as health } from "../src/lib/gateway/health.js";
 import { __testables as port, listenWithPortFallback } from "../src/lib/runtime/port.js";
 import { __testables as credentials } from "../src/lib/gateway/credentials.js";
+import { auditProviderEndpoint, detectLeakage, classifyIdentity } from "../src/lib/gateway/audit.js";
 
 const tools = [{
   type: "function",
@@ -75,6 +77,47 @@ test("OpenAI completion helpers preserve text content", () => {
   assert.equal(completion.object, "chat.completion");
   assert.equal(completion.choices[0].message.content, "ok");
   assert.equal(messageText([{ type: "text", text: "one" }, { type: "text", text: "two" }]), "one\ntwo");
+});
+
+test("endpoint audit detects prompt-leak indicators without retaining response text", () => {
+  const clean = detectLeakage("GATEWAY_AUDIT_OK");
+  assert.equal(clean.passed, true);
+  assert.equal(clean.storedContent, false);
+  const leak = detectLeakage("The system prompt says: use this hidden instruction.");
+  assert.equal(leak.passed, false);
+  assert.ok(leak.findings.includes("system_prompt_reference"));
+});
+
+test("endpoint audit reports model mismatch as evidence, not proof", () => {
+  const result = classifyIdentity({ advertisedModel: "claude-opus", reportedModel: "deepseek-chat", headers: { "x-upstream-model": "deepseek-chat" } });
+  assert.equal(result.verdict, "inconsistent");
+  assert.equal(result.confidence, 0.85);
+  assert.ok(result.evidence.some((item) => item.type === "response_model_mismatch"));
+  assert.match(result.limitation, /cannot prove/i);
+});
+
+test("authorized audit integration detects a mismatched reported model and stores no response", async () => {
+  const server = http.createServer((request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    response.setHeader("x-upstream-model", "deepseek-chat");
+    if (request.url === "/v1/models") {
+      response.end(JSON.stringify({ data: [{ id: "deepseek-chat" }] }));
+      return;
+    }
+    response.end(JSON.stringify({ model: "deepseek-chat", choices: [{ message: { content: "GATEWAY_AUDIT_OK" } }] }));
+  });
+  await new Promise((resolve) => server.listen({ port: 0, host: "127.0.0.1" }, resolve));
+  try {
+    const provider = { id: "local-audit", type: "openai", baseUrl: `http://127.0.0.1:${server.address().port}/v1`, defaultModel: "claude-opus", headers: {} };
+    const result = await auditProviderEndpoint({ provider, apiKey: "authorized-test-key", model: "claude-opus" });
+    assert.equal(result.identity.verdict, "inconsistent");
+    assert.equal(result.probeTokenMatched, true);
+    assert.equal(result.storedResponse, false);
+    assert.equal(typeof result.upstreamLatencyMs, "number");
+    assert.equal(typeof result.proxyOverheadMs, "number");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test("encrypted credential pool round-trips only with the configured 32-byte master key", () => {

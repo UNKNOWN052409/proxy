@@ -15,7 +15,7 @@ function clone(value) {
 }
 
 function defaultState() {
-  return { providers: {}, health: {}, modelCatalog: {}, lastRefreshAt: null };
+  return { providers: {}, health: {}, modelCatalog: {}, audits: {}, lastRefreshAt: null };
 }
 
 function readState() {
@@ -25,6 +25,7 @@ function readState() {
     providers: raw.providers && typeof raw.providers === "object" ? raw.providers : {},
     health: raw.health && typeof raw.health === "object" ? raw.health : {},
     modelCatalog: raw.modelCatalog && typeof raw.modelCatalog === "object" ? raw.modelCatalog : {},
+    audits: raw.audits && typeof raw.audits === "object" ? raw.audits : {},
     lastRefreshAt: typeof raw.lastRefreshAt === "string" ? raw.lastRefreshAt : null,
   };
 }
@@ -80,6 +81,7 @@ export function restoreGatewayRuntimeState(state) {
     providers: state.providers && typeof state.providers === "object" ? state.providers : {},
     health: state.health && typeof state.health === "object" ? state.health : {},
     modelCatalog: state.modelCatalog && typeof state.modelCatalog === "object" ? state.modelCatalog : {},
+    audits: state.audits && typeof state.audits === "object" ? state.audits : {},
     lastRefreshAt: typeof state.lastRefreshAt === "string" ? state.lastRefreshAt : null,
   }));
 }
@@ -145,6 +147,37 @@ export function saveProviderModels(providerId, models) {
 export function getProviderModels(providerId) {
   const entry = readState().modelCatalog[normalizeId(providerId)];
   return entry ? clone(entry) : null;
+}
+
+export function saveProviderAudit(providerId, audit) {
+  const id = normalizeId(providerId);
+  const state = readState();
+  state.audits[id] = clone({
+    checkedAt: audit.checkedAt,
+    providerId: id,
+    advertisedModel: audit.advertisedModel || null,
+    modelList: Array.isArray(audit.modelList) ? audit.modelList.slice(0, 100) : [],
+    modelListStatus: audit.modelListStatus || null,
+    probeStatus: audit.probeStatus || null,
+    identity: audit.identity || { verdict: "unknown", confidence: 0.1, evidence: [] },
+    leakage: audit.leakage || { passed: true, findings: [], storedContent: false },
+    probeTokenMatched: Boolean(audit.probeTokenMatched),
+    upstreamLatencyMs: Number.isFinite(audit.upstreamLatencyMs) ? audit.upstreamLatencyMs : null,
+    auditDurationMs: Number.isFinite(audit.auditDurationMs) ? audit.auditDurationMs : null,
+    proxyOverheadMs: Number.isFinite(audit.proxyOverheadMs) ? audit.proxyOverheadMs : null,
+    proxyOverheadTargetMs: 1,
+    proxyOverheadUnderTarget: Boolean(audit.proxyOverheadUnderTarget),
+    routingSignals: Array.isArray(audit.routingSignals) ? audit.routingSignals.slice(0, 20) : [],
+    error: audit.error ? String(audit.error).slice(0, 300) : null,
+    storedResponse: false,
+  });
+  writeState(state);
+  return clone(state.audits[id]);
+}
+
+export function getProviderAudit(providerId) {
+  const audit = readState().audits[normalizeId(providerId)];
+  return audit ? clone(audit) : null;
 }
 
 export function getGatewayNotifications() {
