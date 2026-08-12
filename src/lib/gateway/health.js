@@ -1,4 +1,5 @@
 import { getGatewayProviders } from "./config.js";
+import { getCredentialPoolStatus, selectCredential } from "./credentials.js";
 import { saveProviderModels, setProviderHealth } from "./runtime-store.js";
 
 const TIMEOUT_MS = 12_000;
@@ -25,6 +26,7 @@ function providerHeaders(provider, apiKey) {
 }
 
 function modelEndpoint(provider) {
+  if (provider.type === "gitlab") return endpoint(provider.baseUrl.replace(/\/api\/v4\/?$/, ""), "/api/v4/version");
   return provider.type === "anthropic"
     ? `${endpoint(provider.baseUrl, "/models")}?limit=1000`
     : endpoint(provider.baseUrl, "/models");
@@ -46,9 +48,10 @@ function statusFor(responseStatus) {
 export async function refreshGatewayProvider(providerId) {
   const provider = getGatewayProviders().find((candidate) => candidate.id === String(providerId || "").toLowerCase());
   if (!provider) throw new Error(`Unknown provider: ${providerId}`);
-  const apiKey = process.env[provider.apiKeyEnv];
-  if (!apiKey) {
-    const health = setProviderHealth(provider.id, { status: "missing_configuration", message: "Configured API-key environment variable is unavailable" });
+  const credential = selectCredential(provider.id);
+  const apiKey = credential?.apiKey || (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : null);
+  if (!apiKey && !provider.allowNoAuth) {
+    const health = setProviderHealth(provider.id, { status: "missing_configuration", message: "Configured API-key environment variable or encrypted credential pool is unavailable" });
     return { providerId: provider.id, ok: false, modelCount: 0, health, error: health.message };
   }
 
@@ -66,7 +69,9 @@ export async function refreshGatewayProvider(providerId) {
       const health = setProviderHealth(provider.id, { status: statusFor(response.status), httpStatus: response.status, latencyMs, message });
       return { providerId: provider.id, ok: false, modelCount: 0, health, error: health.message };
     }
-    const models = extractModels(provider, payload);
+    const models = provider.type === "gitlab"
+      ? (provider.models.length ? provider.models : ["duo-chat"])
+      : extractModels(provider, payload);
     const catalog = saveProviderModels(provider.id, models);
     const health = setProviderHealth(provider.id, { status: "healthy", httpStatus: response.status, latencyMs, message: null });
     return { providerId: provider.id, ok: true, modelCount: models.length, models, catalog, health };

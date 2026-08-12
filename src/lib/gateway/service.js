@@ -4,9 +4,11 @@ import { buildToolInstruction, parseClientManagedToolResponse } from "./tools.js
 import { convertImagesToText } from "./vision.js";
 import { executeOpenAi, describeImageWithOpenAi } from "./providers/openai.js";
 import { executeAnthropic, describeImageWithAnthropic } from "./providers/anthropic.js";
+import { executeGitLab } from "./providers/gitlab.js";
 import { usageStore } from "../usage/store.js";
 
 function executorFor(provider) {
+  if (provider.adapter === "gitlab" || provider.type === "gitlab") return executeGitLab;
   if (provider.type === "openai") return executeOpenAi;
   if (provider.type === "anthropic") return executeAnthropic;
   throw gatewayError(`Unsupported provider type: ${provider.type}`, 400, "invalid_provider");

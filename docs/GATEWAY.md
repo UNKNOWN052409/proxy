@@ -180,3 +180,9 @@ Gateway usage entries now preserve duration, result status, provider, model, and
 [1] OpenAI, [List models](https://developers.openai.com/api/reference/resources/models/methods/list/).
 
 [2] Anthropic, [List Models](https://platform.claude.com/docs/en/api/models/list).
+
+## Dedicated provider directory
+
+The Gateway dashboard exposes dedicated profiles for OpenAI/ChatGPT, Anthropic, Qwen/DashScope, Moonshot Kimi, xAI/Grok, self-managed GitLab Duo, Lovable custom endpoints, Kiro custom endpoints, and local OpenCode-compatible services. Qwen, Kimi, and Grok use their documented OpenAI-compatible API boundaries. GitLab is restricted to explicitly authorized self-managed instances. OpenCode can be local and no-auth upstream, but the public gateway remains authenticated. Lovable and Kiro are metadata/custom-endpoint profiles unless the user supplies an authorized documented endpoint.
+
+Provider cards use locally bundled SVG assets. Where a Simple Icons source was unavailable, the project uses a local branded provider mark as a UI identifier and does not claim it is official trademark artwork. Provider credentials remain server-side and are never placed in the logo directory or returned by status APIs.

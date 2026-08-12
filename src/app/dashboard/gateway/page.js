@@ -11,6 +11,22 @@ function Capability({ enabled, icon, label }) {
   );
 }
 
+function ProviderLogo({ provider, size = "md" }) {
+  const [failed, setFailed] = useState(false);
+  const initials = String(provider?.label || provider?.id || "AI")
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  const dimensions = size === "sm" ? "h-7 w-7" : "h-10 w-10";
+  if (!failed && provider?.logoPath) {
+    return <span className={`${dimensions} shrink-0 rounded-xl bg-white/95 border border-border p-1.5 flex items-center justify-center`}><img src={provider.logoPath} alt={`${provider.label} logo`} className="max-h-full max-w-full object-contain" onError={() => setFailed(true)} /></span>;
+  }
+  return <span className={`${dimensions} shrink-0 rounded-xl bg-brand-500/15 border border-brand-500/25 flex items-center justify-center text-xs font-bold text-brand-300`} aria-label={`${provider?.label || provider?.id || "Provider"} logo`}>{initials || "AI"}</span>;
+}
+
 const exampleProvider = JSON.stringify([{
   id: "custom-api",
   label: "My OpenAI-compatible API",
@@ -193,9 +209,11 @@ export default function GatewayPage() {
         <div className="mt-3 grid sm:grid-cols-2 gap-2 text-xs text-text-muted"><div className="p-3 rounded-lg bg-surface-2/50 border border-border"><code>GET /v1/models</code><p className="mt-1">Lists enabled, non-expired provider models.</p></div><div className="p-3 rounded-lg bg-surface-2/50 border border-border"><code>POST /v1/chat/completions</code><p className="mt-1">Requires a dashboard-created Bearer key.</p></div></div>
       </Card>
 
-      {importOpen && <Card title="Merge provider configuration" icon="upload_file" subtitle="Imports update matching IDs and keep all other configured providers. Secrets stay in server environment variables."><div className="space-y-3"><textarea value={importText} onChange={(event) => setImportText(event.target.value)} className="w-full min-h-[260px] rounded-xl border border-border bg-bg p-4 text-xs font-mono text-text-main focus:outline-none focus:ring-2 focus:ring-brand-500/30" spellCheck="false" /><div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-muted"><p>Allowed types: <code>openai</code>, <code>anthropic</code>. HTTPS is required except for loopback development URLs. Credential values, cookies, and authorization headers are rejected.</p><Button variant="primary" size="sm" icon="file_download" loading={busyProvider === "import"} onClick={importProviders}>Merge configuration</Button></div></div></Card>}
+      {importOpen && <Card title="Merge provider configuration" icon="upload_file" subtitle="Imports update matching IDs and keep all other configured providers. Secrets stay in server environment variables."><div className="space-y-3"><textarea value={importText} onChange={(event) => setImportText(event.target.value)} className="w-full min-h-[260px] rounded-xl border border-border bg-bg p-4 text-xs font-mono text-text-main focus:outline-none focus:ring-2 focus:ring-brand-500/30" spellCheck="false" /><div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-muted"><p>Dedicated types: <code>openai</code>, <code>anthropic</code>, <code>gitlab</code>; Qwen, Kimi, and Grok use their official OpenAI-compatible APIs. OpenCode is local-only; GitLab is self-managed; Lovable and Kiro require explicit custom endpoints. HTTPS is required except for loopback development URLs. Credential values, cookies, and authorization headers are rejected.</p><Button variant="primary" size="sm" icon="file_download" loading={busyProvider === "import"} onClick={importProviders}>Merge configuration</Button></div></div></Card>}
 
       {importOpen && <Card title="Import authorized API-key pool" icon="key" subtitle="Keys are encrypted locally with GATEWAY_CREDENTIAL_MASTER_KEY and never returned after import."><div className="space-y-3"><div className="grid sm:grid-cols-2 gap-3"><input value={credentialProvider} onChange={(event) => setCredentialProvider(event.target.value)} placeholder="provider id, e.g. custom-api" className="rounded-xl border border-border bg-bg p-3 text-sm text-text-main" /><textarea value={credentialText} onChange={(event) => setCredentialText(event.target.value)} placeholder={'[{\"label\":\"primary\",\"apiKey\":\"...\"}]'} className="min-h-[100px] rounded-xl border border-border bg-bg p-3 text-xs font-mono text-text-main" spellCheck="false" /></div><div className="flex items-center justify-between gap-2 text-xs text-text-muted"><p>Only user-owned API keys or official OAuth tokens. Cookies, passwords, and session tokens are rejected.</p><Button variant="primary" size="sm" icon="lock" loading={busyProvider === "credentials"} disabled={!credentialProvider || !credentialText} onClick={importCredentials}>Encrypt & import</Button></div></div></Card>}
+
+      <Card title="Provider directory" icon="apps" subtitle="Dedicated adapters and official/custom endpoint boundaries. Missing logo assets use a branded monogram fallback."><div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">{(status?.supportedProviders || []).map((profile) => <div key={profile.id} className="flex items-center gap-3 p-3 rounded-xl bg-bg border border-border"><ProviderLogo provider={profile} size="sm" /><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="text-sm font-medium text-text-main truncate">{profile.label}</p><span className={`h-1.5 w-1.5 rounded-full ${profile.configured ? "bg-emerald-400" : "bg-text-subtle"}`} title={profile.configured ? "Configured" : "Not configured"} /></div><p className="text-[11px] text-text-muted mt-0.5">{profile.officialApi === true ? "Official API" : profile.officialApi === "self-managed-only" ? "Self-managed API" : profile.officialApi === "local-openapi" ? "Local OpenAPI" : "Custom endpoint"}</p><p className="text-[11px] text-text-subtle truncate">{profile.models?.length ? `${profile.models.length} catalog models` : "Model catalog configured at runtime"}</p></div></div>)}</div></Card>
 
       <Card title="Authorized providers" icon="hub" subtitle="Validate credentials with a documented model-list request, then selectively enable each provider.">
         <div className="flex justify-end mb-3"><Button variant="outline" size="sm" icon="sync" loading={busyProvider === "all"} disabled={providers.length === 0} onClick={() => refreshProvider()}>Refresh all models</Button></div>

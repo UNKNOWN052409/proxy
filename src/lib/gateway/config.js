@@ -1,8 +1,9 @@
 import { getGatewayNotifications, getGatewayRuntimeState, getProviderModels, getProviderSettings } from "./runtime-store.js";
 import { getCredentialPoolStatus, markCredentialResult, selectCredential } from "./credentials.js";
+import { getDedicatedProviderProfile, listDedicatedProviderProfiles } from "./providers/dedicated.js";
 
-const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "DASHSCOPE_", "QWEN_", "XAI_"];
-const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic"]);
+const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "GITLAB_", "LOVABLE_", "KIRO_"];
+const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic", "gitlab"]);
 
 function splitModels(value) {
   if (Array.isArray(value)) return value.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim());
@@ -52,13 +53,16 @@ function normalizeHeaders(headers) {
 function normalizeProvider(provider) {
   if (!provider || typeof provider !== "object") throw new Error("Provider entries must be objects");
   const id = String(provider.id || "").trim().toLowerCase();
-  const type = String(provider.type || "openai").trim().toLowerCase();
-  const apiKeyEnv = String(provider.apiKeyEnv || "").trim();
+  const profile = getDedicatedProviderProfile(id);
+  const type = String(provider.type || profile?.type || "openai").trim().toLowerCase();
+  const apiKeyEnv = String(provider.apiKeyEnv || profile?.apiKeyEnv || "").trim();
+  const allowNoAuth = provider.allowNoAuth === true && profile?.localOnly === true;
   const credentialPool = getCredentialPoolStatus(id);
   if (!/^[a-z][a-z0-9_-]{1,63}$/.test(id)) {
     throw new Error("Provider id must be 2–64 lowercase letters, numbers, hyphens, or underscores");
   }
   if (!SUPPORTED_PROVIDER_TYPES.has(type)) throw new Error(`Provider ${id} has unsupported type: ${type}`);
+  if (type === "gitlab" && !provider.baseUrl) throw new Error(`Provider ${id} requires an explicit self-managed GitLab baseUrl`);
   if (apiKeyEnv && !ALLOWED_SECRET_PREFIXES.some((prefix) => apiKeyEnv.startsWith(prefix))) {
     throw new Error(`Provider ${id} must reference a dedicated gateway secret environment variable`);
   }
@@ -70,13 +74,18 @@ function normalizeProvider(provider) {
     id,
     label: String(provider.label || id),
     type,
-    baseUrl: normalizeBaseUrl(provider.baseUrl, id),
+    baseUrl: normalizeBaseUrl(provider.baseUrl || profile?.baseUrl, id),
     apiKeyEnv: apiKeyEnv || null,
+    allowNoAuth,
+    adapter: String(provider.adapter || profile?.adapter || type).trim().toLowerCase(),
+    logoPath: provider.logoPath || profile?.logoPath || null,
+    docsUrl: provider.docsUrl || profile?.docsUrl || null,
+    officialApi: provider.officialApi || profile?.officialApi || false,
     credentialPool,
     models,
     defaultModel: String(provider.defaultModel || models[0] || "").trim(),
-    supportsTools: provider.supportsTools === true,
-    supportsVision: provider.supportsVision === true,
+    supportsTools: provider.supportsTools === true || profile?.supportsTools === true,
+    supportsVision: provider.supportsVision === true || profile?.supportsVision === true,
     visionProvider: provider.visionProvider ? String(provider.visionProvider).trim().toLowerCase() : null,
     headers: normalizeHeaders(provider.headers),
     enabled: provider.enabled !== false,
@@ -114,6 +123,27 @@ function environmentProviders() {
       supportsVision: process.env.GATEWAY_ANTHROPIC_SUPPORTS_VISION === "true",
     });
   }
+  const profileEnvProviders = [
+    ["qwen", "DASHSCOPE_API_KEY", "GATEWAY_QWEN_BASE_URL", "GATEWAY_QWEN_MODELS"],
+    ["kimi", "MOONSHOT_API_KEY", "GATEWAY_KIMI_BASE_URL", "GATEWAY_KIMI_MODELS"],
+    ["grok", "XAI_API_KEY", "GATEWAY_GROK_BASE_URL", "GATEWAY_GROK_MODELS"],
+  ];
+  for (const [id, secretEnv, baseUrlEnv, modelsEnv] of profileEnvProviders) {
+    if (!process.env[secretEnv]) continue;
+    const profile = getDedicatedProviderProfile(id);
+    providers.push({
+      ...profile,
+      id,
+      baseUrl: process.env[baseUrlEnv] || profile.baseUrl,
+      apiKeyEnv: secretEnv,
+      models: splitModels(process.env[modelsEnv]).length ? splitModels(process.env[modelsEnv]) : profile.models,
+      defaultModel: process.env[`GATEWAY_${id.toUpperCase()}_DEFAULT_MODEL`] || profile.models[0],
+    });
+  }
+  if (process.env.GATEWAY_OPENCODE_ENABLED === "true") {
+    const profile = getDedicatedProviderProfile("opencode");
+    providers.push({ ...profile, id: "opencode", baseUrl: process.env.GATEWAY_OPENCODE_BASE_URL || profile.baseUrl, models: splitModels(process.env.GATEWAY_OPENCODE_MODELS), allowNoAuth: true });
+  }
   return providers;
 }
 
@@ -125,7 +155,7 @@ function readConfiguredProviders() {
     if (id) records.set(id, { ...provider, ...(runtime.providers[id] || {}), id });
   }
   for (const [id, provider] of Object.entries(runtime.providers)) {
-    if (!records.has(id) && provider.baseUrl && provider.apiKeyEnv) records.set(id, { ...provider, id });
+    if (!records.has(id) && provider.baseUrl && (provider.apiKeyEnv || provider.allowNoAuth === true)) records.set(id, { ...provider, id });
   }
   return [...records.values()].map(normalizeProvider);
 }
@@ -164,6 +194,10 @@ export function getGatewayStatus() {
     })),
     notifications: getGatewayNotifications(),
     lastRefreshAt: runtime.lastRefreshAt,
+    supportedProviders: listDedicatedProviderProfiles().map(({ apiKeyEnv, ...profile }) => ({
+      ...profile,
+      configured: Boolean(apiKeyEnv && process.env[apiKeyEnv]),
+    })),
     features: {
       clientManagedTools: true,
       visionFallback: providers.some((provider) => Boolean(provider.visionProvider)),
@@ -198,7 +232,7 @@ export function resolveProvider(model) {
   }
   const credential = selectCredential(provider.id);
   const apiKey = credential?.apiKey || (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : null);
-  if (!apiKey) throw new Error(`Provider ${provider.id} is missing its configured API key`);
+  if (!apiKey && !provider.allowNoAuth) throw new Error(`Provider ${provider.id} is missing its configured API key`);
   return { provider, model: modelId, apiKey, credentialId: credential?.credentialId || null, markCredentialResult: (success, statusCode) => credential?.credentialId && markCredentialResult(provider.id, credential.credentialId, success, statusCode) };
 }
 
@@ -207,7 +241,7 @@ export function resolveProviderById(providerId) {
   if (!provider) throw new Error(`Unknown, disabled, or expired provider: ${providerId}`);
   const credential = selectCredential(provider.id);
   const apiKey = credential?.apiKey || (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : null);
-  if (!apiKey) throw new Error(`Provider ${provider.id} is missing its configured API key`);
+  if (!apiKey && !provider.allowNoAuth) throw new Error(`Provider ${provider.id} is missing its configured API key`);
   return { provider, apiKey, credentialId: credential?.credentialId || null, markCredentialResult: (success, statusCode) => credential?.credentialId && markCredentialResult(provider.id, credential.credentialId, success, statusCode) };
 }
 

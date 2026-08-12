@@ -141,3 +141,21 @@ test("port utilities fall forward when the preferred localhost port is occupied"
   await new Promise((resolve) => server.close(resolve));
   await new Promise((resolve) => blocker.close(resolve));
 });
+
+
+test("dedicated provider profiles expose safe official and local boundaries", async () => {
+  const { DEDICATED_PROVIDER_PROFILES } = await import("../src/lib/gateway/providers/dedicated.js");
+  assert.equal(DEDICATED_PROVIDER_PROFILES.qwen.type, "openai");
+  assert.equal(DEDICATED_PROVIDER_PROFILES.kimi.officialApi, true);
+  assert.equal(DEDICATED_PROVIDER_PROFILES.grok.baseUrl, "https://api.x.ai/v1");
+  assert.equal(DEDICATED_PROVIDER_PROFILES.gitlab.officialApi, "self-managed-only");
+  assert.equal(DEDICATED_PROVIDER_PROFILES.opencode.localOnly, true);
+  assert.equal(DEDICATED_PROVIDER_PROFILES.opencode.allowNoAuth, true);
+  assert.equal(DEDICATED_PROVIDER_PROFILES.kiro.officialApi, "custom-endpoint-only");
+});
+
+test("GitLab adapter formats user-owned messages without retaining credentials", async () => {
+  const { __testables: gitlab } = await import("../src/lib/gateway/providers/gitlab.js");
+  assert.equal(gitlab.endpoint("https://gitlab.example.com/api/v4"), "https://gitlab.example.com/api/v4/chat/completions");
+  assert.match(gitlab.textFromMessages([{ role: "user", content: "hello" }]), /user: hello/);
+});
