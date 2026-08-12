@@ -34,13 +34,21 @@ async function withVisionFallback({ provider, messages }) {
     );
   }
 
-  const { provider: visionProvider, apiKey } = resolveProviderById(provider.visionProvider);
+  const visionSelection = resolveProviderById(provider.visionProvider);
+  const { provider: visionProvider, apiKey } = visionSelection;
   if (!visionProvider.supportsVision) {
     throw gatewayError(`Configured vision provider ${visionProvider.id} is not marked as vision-capable`, 500, "configuration_error");
   }
   const describeImage = visionExecutorFor(visionProvider);
   const model = resolveVisionModel(visionProvider);
-  return convertImagesToText(messages, (image) => describeImage({ provider: visionProvider, apiKey, model, image }));
+  try {
+    const converted = await convertImagesToText(messages, (image) => describeImage({ provider: visionProvider, apiKey, model, image }));
+    visionSelection.markCredentialResult?.(true, 200);
+    return converted;
+  } catch (error) {
+    visionSelection.markCredentialResult?.(false, error?.status || error?.statusCode || null);
+    throw error;
+  }
 }
 
 function toolShimMessages(messages, tools, toolChoice) {
@@ -79,14 +87,17 @@ export async function executeGatewayChat(body) {
       const answer = direct.completion?.choices?.[0]?.message?.content;
       const completion = parseClientManagedToolResponse({ text: answer, tools: body.tools, model: `${provider.id}/${model}` });
       completion.usage = direct.completion?.usage || completion.usage;
+      selection.markCredentialResult?.(true, 200);
       recordUsage({ provider, model, completion, startedAt, success: true });
       return { completion, provider, model, mode: "client_managed_tools" };
     }
 
     const result = await executorFor(provider)({ provider, apiKey, body, model, messages, tools: body.tools || [] });
+    selection.markCredentialResult?.(true, 200);
     recordUsage({ provider, model, completion: result.completion, startedAt, success: true });
     return { completion: result.completion, provider, model, mode: provider.supportsTools ? "native_tools" : "chat" };
   } catch (error) {
+    selection?.markCredentialResult?.(false, error?.status || error?.statusCode || null);
     if (selection?.provider) {
       recordUsage({ provider: selection.provider, model: selection.model, completion: null, startedAt, success: false, error: error.message });
     }

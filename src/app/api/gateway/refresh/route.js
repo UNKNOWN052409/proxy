@@ -4,6 +4,9 @@ import { refreshGatewayModels, refreshGatewayProvider } from "@/lib/gateway/heal
 export const runtime = "nodejs";
 
 export async function POST(request) {
+  if (request.cookies.get("kp-auth")?.value !== "authenticated") {
+    return NextResponse.json({ error: "Dashboard authentication required" }, { status: 401 });
+  }
   let body = {};
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 }); }
 

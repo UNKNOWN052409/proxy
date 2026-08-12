@@ -6,14 +6,20 @@
  * This intentionally serves only the public gateway surface; the Next.js dashboard is optional.
  */
 import http from "node:http";
+import { listenWithPortFallback } from "./lib/runtime/port.js";
 import { validateKey } from "./lib/api-keys/store.js";
 import { getGatewayStatus, listGatewayModels } from "./lib/gateway/config.js";
 import { executeGatewayChat } from "./lib/gateway/service.js";
 import { corsHeaders, getBearerToken, openAiErrorResponse, validateChatRequest, gatewayError } from "./lib/gateway/openai.js";
 
-const port = Number(process.env.GATEWAY_PORT || 20127);
+const preferredPort = Number(process.env.GATEWAY_PORT || 2018);
 const host = process.env.GATEWAY_HOST || "127.0.0.1";
 const maxBodyBytes = Number(process.env.GATEWAY_MAX_BODY_BYTES || 2 * 1024 * 1024);
+let activePort = preferredPort;
+
+if (!["127.0.0.1", "localhost", "::1"].includes(host) && process.env.GATEWAY_ALLOW_LAN !== "true") {
+  throw new Error("GATEWAY_HOST must be loopback unless GATEWAY_ALLOW_LAN=true is explicitly set");
+}
 
 function writeResponse(nodeResponse, response) {
   const headers = Object.fromEntries(response.headers.entries());
@@ -40,7 +46,7 @@ async function readJson(nodeRequest) {
 }
 
 function toWebRequest(nodeRequest, body = undefined) {
-  const origin = `http://${nodeRequest.headers.host || `${host}:${port}`}`;
+  const origin = `http://${nodeRequest.headers.host || `${host}:${activePort}`}`;
   const headers = new Headers();
   for (const [key, value] of Object.entries(nodeRequest.headers)) {
     if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(",") : value);
@@ -85,6 +91,14 @@ const server = http.createServer(async (nodeRequest, nodeResponse) => {
   }
 });
 
-server.listen(port, host, () => {
+listenWithPortFallback(server, {
+  preferredPort,
+  host,
+  attempts: process.env.PORT_FALLBACK_MAX_ATTEMPTS,
+}).then((port) => {
+  activePort = port;
   console.log(`Gateway listening at http://${host}:${port}`);
+}).catch((error) => {
+  console.error(error instanceof Error ? error.message : "Could not start gateway");
+  process.exit(1);
 });

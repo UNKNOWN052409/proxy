@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import net from "node:net";
 
 import { __testables as config } from "../src/lib/gateway/config.js";
 import { parseClientManagedToolResponse } from "../src/lib/gateway/tools.js";
@@ -7,6 +8,8 @@ import { validateImageUrl, countImages } from "../src/lib/gateway/vision.js";
 import { createChatCompletion, messageText } from "../src/lib/gateway/openai.js";
 import { __testables as runtime } from "../src/lib/gateway/runtime-store.js";
 import { __testables as health } from "../src/lib/gateway/health.js";
+import { __testables as port, listenWithPortFallback } from "../src/lib/runtime/port.js";
+import { __testables as credentials } from "../src/lib/gateway/credentials.js";
 
 const tools = [{
   type: "function",
@@ -72,4 +75,26 @@ test("OpenAI completion helpers preserve text content", () => {
   assert.equal(completion.object, "chat.completion");
   assert.equal(completion.choices[0].message.content, "ok");
   assert.equal(messageText([{ type: "text", text: "one" }, { type: "text", text: "two" }]), "one\ntwo");
+});
+
+test("encrypted credential pool round-trips only with the configured 32-byte master key", () => {
+  const previous = process.env.GATEWAY_CREDENTIAL_MASTER_KEY;
+  process.env.GATEWAY_CREDENTIAL_MASTER_KEY = "11".repeat(32);
+  const encrypted = credentials.encrypt("authorized-api-key");
+  assert.notEqual(encrypted.ciphertext, "authorized-api-key");
+  assert.equal(credentials.decrypt(encrypted), "authorized-api-key");
+  if (previous === undefined) delete process.env.GATEWAY_CREDENTIAL_MASTER_KEY;
+  else process.env.GATEWAY_CREDENTIAL_MASTER_KEY = previous;
+});
+
+test("port utilities fall forward when the preferred localhost port is occupied", async () => {
+  assert.equal(port.normalizePort("not-a-port"), 2018);
+  const blocker = net.createServer();
+  await new Promise((resolve) => blocker.listen({ port: 0, host: "127.0.0.1" }, resolve));
+  const blockedPort = blocker.address().port;
+  const server = net.createServer();
+  const selected = await listenWithPortFallback(server, { preferredPort: blockedPort, host: "127.0.0.1", attempts: 5 });
+  assert.notEqual(selected, blockedPort);
+  await new Promise((resolve) => server.close(resolve));
+  await new Promise((resolve) => blocker.close(resolve));
 });

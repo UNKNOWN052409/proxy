@@ -5,9 +5,9 @@
   "description": "Kiro AI Proxy — OpenAI-compatible proxy with premium UI",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 20127",
+    "dev": "node src/start-next.js dev",
     "build": "next build",
-    "start": "next start --port 20127",
+    "start": "node src/start-next.js start",
     "gateway": "node src/gateway-server.js",
     "gateway:refresh-models": "node src/jobs/refresh-gateway-models.js",
     "test": "node --test tests/**/*.test.js"

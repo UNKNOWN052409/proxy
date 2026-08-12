@@ -1,4 +1,5 @@
 import { getGatewayNotifications, getGatewayRuntimeState, getProviderModels, getProviderSettings } from "./runtime-store.js";
+import { getCredentialPoolStatus, markCredentialResult, selectCredential } from "./credentials.js";
 
 const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "DASHSCOPE_", "QWEN_", "XAI_"];
 const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic"]);
@@ -53,11 +54,12 @@ function normalizeProvider(provider) {
   const id = String(provider.id || "").trim().toLowerCase();
   const type = String(provider.type || "openai").trim().toLowerCase();
   const apiKeyEnv = String(provider.apiKeyEnv || "").trim();
+  const credentialPool = getCredentialPoolStatus(id);
   if (!/^[a-z][a-z0-9_-]{1,63}$/.test(id)) {
     throw new Error("Provider id must be 2–64 lowercase letters, numbers, hyphens, or underscores");
   }
   if (!SUPPORTED_PROVIDER_TYPES.has(type)) throw new Error(`Provider ${id} has unsupported type: ${type}`);
-  if (!ALLOWED_SECRET_PREFIXES.some((prefix) => apiKeyEnv.startsWith(prefix))) {
+  if (apiKeyEnv && !ALLOWED_SECRET_PREFIXES.some((prefix) => apiKeyEnv.startsWith(prefix))) {
     throw new Error(`Provider ${id} must reference a dedicated gateway secret environment variable`);
   }
 
@@ -69,7 +71,8 @@ function normalizeProvider(provider) {
     label: String(provider.label || id),
     type,
     baseUrl: normalizeBaseUrl(provider.baseUrl, id),
-    apiKeyEnv,
+    apiKeyEnv: apiKeyEnv || null,
+    credentialPool,
     models,
     defaultModel: String(provider.defaultModel || models[0] || "").trim(),
     supportsTools: provider.supportsTools === true,
@@ -151,7 +154,8 @@ export function getGatewayStatus() {
     configurationError,
     providers: providers.map(({ apiKeyEnv, headers, ...provider }) => ({
       ...provider,
-      configured: Boolean(process.env[apiKeyEnv]),
+      configured: Boolean((apiKeyEnv && process.env[apiKeyEnv]) || provider.credentialPool?.ready),
+      credentialPool: provider.credentialPool,
       expired: isProviderExpired(provider),
       health: runtime.health[provider.id] || { status: "unknown", checkedAt: null },
       lastModelRefresh: runtime.modelCatalog[provider.id]?.refreshedAt || null,
@@ -190,17 +194,19 @@ export function resolveProvider(model) {
   if (provider.models.length > 0 && !provider.models.includes(modelId)) {
     throw new Error(`Model ${modelId} is not enabled for provider ${provider.id}`);
   }
-  const apiKey = process.env[provider.apiKeyEnv];
+  const credential = selectCredential(provider.id);
+  const apiKey = credential?.apiKey || (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : null);
   if (!apiKey) throw new Error(`Provider ${provider.id} is missing its configured API key`);
-  return { provider, model: modelId, apiKey };
+  return { provider, model: modelId, apiKey, credentialId: credential?.credentialId || null, markCredentialResult: (success, statusCode) => credential?.credentialId && markCredentialResult(provider.id, credential.credentialId, success, statusCode) };
 }
 
 export function resolveProviderById(providerId) {
   const provider = enabledProviders().find((candidate) => candidate.id === String(providerId || "").toLowerCase());
   if (!provider) throw new Error(`Unknown, disabled, or expired provider: ${providerId}`);
-  const apiKey = process.env[provider.apiKeyEnv];
+  const credential = selectCredential(provider.id);
+  const apiKey = credential?.apiKey || (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : null);
   if (!apiKey) throw new Error(`Provider ${provider.id} is missing its configured API key`);
-  return { provider, apiKey };
+  return { provider, apiKey, credentialId: credential?.credentialId || null, markCredentialResult: (success, statusCode) => credential?.credentialId && markCredentialResult(provider.id, credential.credentialId, success, statusCode) };
 }
 
 export function listGatewayModels() {
