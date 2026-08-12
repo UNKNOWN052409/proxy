@@ -4,6 +4,9 @@ const STATE_KEY = "gatewayRuntime";
 const PROVIDER_FIELDS = new Set([
   "id", "label", "type", "baseUrl", "apiKeyEnv", "models", "defaultModel",
   "supportsTools", "supportsVision", "visionProvider", "headers", "enabled", "expiresAt",
+  "adapter", "logoPath", "docsUrl", "officialApi", "region", "accessKeyEnv", "secretKeyEnv", "sessionTokenEnv",
+  "routingPriority", "fallbackProviders", "costInputPerMillion", "costOutputPerMillion", "contextWindow",
+  "oauthAuthUrl", "oauthTokenUrl", "oauthClientIdEnv", "oauthClientSecretEnv", "oauthScopes", "oauthRedirectUri",
 ]);
 const FORBIDDEN_FIELDS = new Set([
   "apikey", "key", "token", "accesstoken", "refreshtoken", "cookie", "cookies", "authorization", "password",
@@ -149,36 +152,58 @@ export function getProviderModels(providerId) {
   return entry ? clone(entry) : null;
 }
 
-function normalizeImportedModels(models) {
+function normalizeImportedModelEntries(models) {
   if (!Array.isArray(models)) throw new Error("Model import must contain an array of model IDs or model objects");
   if (models.length > 1000) throw new Error("At most 1,000 models may be imported at once");
-  const normalized = models.map((entry) => {
-    const id = typeof entry === "string" ? entry : entry && typeof entry === "object" ? entry.id : "";
+  const seen = new Set();
+  return models.map((entry) => {
+    const object = entry && typeof entry === "object" && !Array.isArray(entry) ? entry : {};
+    const id = typeof entry === "string" ? entry : object.id;
     const value = String(id || "").trim();
     if (!value || value.length > 256) throw new Error("Each imported model must have an ID between 1 and 256 characters");
     if (/\s/.test(value) || value.includes("/") || value.includes("\\")) throw new Error("Imported model IDs may not contain paths or whitespace");
-    return value;
-  });
-  return [...new Set(normalized)];
+    if (seen.has(value)) return null;
+    seen.add(value);
+    const metadata = {};
+    for (const field of ["name", "alias", "upstreamModelId", "description"]) {
+      if (typeof object[field] === "string" && object[field].length <= 512) metadata[field] = object[field].trim();
+    }
+    for (const field of ["contextWindow", "inputCostPerMillion", "outputCostPerMillion", "routingPriority"]) {
+      if (Number.isFinite(Number(object[field]))) metadata[field] = Number(object[field]);
+    }
+    for (const field of ["supportsTools", "supportsVision", "enabled"]) {
+      if (typeof object[field] === "boolean") metadata[field] = object[field];
+    }
+    return { id: value, metadata };
+  }).filter(Boolean);
+}
+
+function normalizeImportedModels(models) {
+  return normalizeImportedModelEntries(models).map((entry) => entry.id);
 }
 
 export function importProviderModels(providerId, models, { replace = false } = {}) {
   const id = normalizeId(providerId);
   if (!id) throw new Error("providerId is required");
-  const imported = normalizeImportedModels(models);
+  const entries = normalizeImportedModelEntries(models);
+  const imported = entries.map((entry) => entry.id);
   const state = readState();
   const previous = state.modelCatalog[id]?.models || [];
   const combined = replace ? imported : normalizeImportedModels([...previous, ...imported]);
+  const previousMetadata = replace ? {} : (state.modelCatalog[id]?.metadata || {});
+  const metadata = { ...previousMetadata };
+  for (const entry of entries) metadata[entry.id] = entry.metadata;
   state.modelCatalog[id] = {
     ...(state.modelCatalog[id] || {}),
     models: combined,
+    metadata,
     source: replace ? "manual-import" : "manual-import-merge",
     importedAt: new Date().toISOString(),
     refreshedAt: state.modelCatalog[id]?.refreshedAt || null,
   };
   state.lastRefreshAt = state.modelCatalog[id].importedAt;
   writeState(state);
-  return clone({ providerId: id, imported: imported.length, total: combined.length, source: state.modelCatalog[id].source, importedAt: state.modelCatalog[id].importedAt });
+  return clone({ providerId: id, imported: imported.length, total: combined.length, metadataCount: Object.keys(metadata).length, source: state.modelCatalog[id].source, importedAt: state.modelCatalog[id].importedAt });
 }
 
 export function saveProviderAudit(providerId, audit) {

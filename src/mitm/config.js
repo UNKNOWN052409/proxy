@@ -2,6 +2,9 @@
 const IS_DEV = process.env.NODE_ENV !== "production";
 
 const MITM_CONFIG = {
+  // Disabled by default: this legacy interception service is not part of the compliant gateway.
+  ENABLED: process.env.ENABLE_LEGACY_MITM === "true" && process.env.LEGACY_MITM_ACK === "I_UNDERSTAND_LOCAL_DEBUG_ONLY",
+
   // Proxy settings
   // WARNING: Port 443 requires administrator/root privileges on most systems
   LOCAL_PORT: 443,

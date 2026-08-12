@@ -187,6 +187,18 @@ The Gateway dashboard exposes dedicated profiles for OpenAI/ChatGPT, Anthropic, 
 
 Provider cards use locally bundled SVG assets. Where a Simple Icons source was unavailable, the project uses a local branded provider mark as a UI identifier and does not claim it is official trademark artwork. Provider credentials remain server-side and are never placed in the logo directory or returned by status APIs.
 
+## AWS Bedrock and official OAuth additions
+
+AWS Bedrock is now a first-class provider using the official Converse API and native AWS Signature Version 4 signing. Set `AWS_REGION` or `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`; `AWS_SESSION_TOKEN` is supported for temporary credentials. The provider can discover foundation models through the official Bedrock control-plane API and route OpenAI-compatible chat requests through Bedrock Runtime. No browser cookies, Kiro sessions, or private client tokens are read.
+
+Provider configuration may define official OAuth metadata (`oauthAuthUrl`, `oauthTokenUrl`, `oauthClientIdEnv`, `oauthClientSecretEnv`, `oauthScopes`, and `oauthRedirectUri`). Authenticated dashboard routes create short-lived state, exchange an authorization code, and place only the returned access token into the encrypted credential pool. OAuth is enabled only when the operator supplies documented provider endpoints and client environment variables.
+
+Model imports preserve bounded metadata: `alias`, `name`, `description`, `upstreamModelId`, `contextWindow`, `supportsTools`, `supportsVision`, `enabled`, `inputCostPerMillion`, `outputCostPerMillion`, and `routingPriority`. This metadata is returned by `/v1/models` under `metadata`, `pricing`, `routing`, and `capabilities` without accepting headers, cookies, passwords, or embedded secrets.
+
+Usage analytics record input tokens, output tokens, total tokens, latency, success rate, and estimated provider cost when pricing metadata is configured. Cost remains an estimate unless the upstream provider exposes authoritative billing data.
+
+The old Kiro account-import endpoint is disabled with HTTP 410. The legacy MITM server refuses startup unless both `ENABLE_LEGACY_MITM=true` and `LEGACY_MITM_ACK=I_UNDERSTAND_LOCAL_DEBUG_ONLY` are explicitly set for authorized local debugging. These legacy paths are not part of the compliant gateway.
+
 
 ## Manual model-catalog import
 

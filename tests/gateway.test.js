@@ -175,3 +175,25 @@ test("GitLab adapter formats user-owned messages without retaining credentials",
   assert.equal(gitlab.endpoint("https://gitlab.example.com/api/v4"), "https://gitlab.example.com/api/v4/chat/completions");
   assert.match(gitlab.textFromMessages([{ role: "user", content: "hello" }]), /user: hello/);
 });
+
+
+test("AWS Bedrock adapter converts OpenAI messages without cookies or remote fetches", async () => {
+  const { __testables: bedrock } = await import("../src/lib/gateway/providers/bedrock.js");
+  const converted = bedrock.toBedrockMessages([
+    { role: "system", content: "Be concise" },
+    { role: "user", content: "hello" },
+    { role: "assistant", content: "hi" },
+  ]);
+  assert.deepEqual(converted.system, [{ text: "Be concise" }]);
+  assert.deepEqual(converted.messages, [{ role: "user", content: [{ text: "hello" }] }, { role: "assistant", content: [{ text: "hi" }] }]);
+  assert.match(bedrock.canonicalQuery(new URLSearchParams("b=2&a=1")), /^a=1&b=2$/);
+  assert.equal(bedrock.usageFrom({ usage: { inputTokens: 3, outputTokens: 4 } }).total_tokens, 7);
+});
+
+test("OAuth state records expire and are not reusable after pruning", async () => {
+  const { __testables: oauth } = await import("../src/lib/gateway/oauth.js");
+  const states = { old: { providerId: "demo", createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString() }, fresh: { providerId: "demo", createdAt: new Date().toISOString() } };
+  const pruned = oauth.pruneStates(states);
+  assert.equal(pruned.old, undefined);
+  assert.equal(pruned.fresh.providerId, "demo");
+});

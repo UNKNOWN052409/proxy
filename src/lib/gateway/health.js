@@ -1,5 +1,6 @@
 import { getGatewayProviders } from "./config.js";
 import { getCredentialPoolStatus, selectCredential } from "./credentials.js";
+import { listBedrockModels } from "./providers/bedrock.js";
 import { saveProviderModels, setProviderHealth } from "./runtime-store.js";
 
 const TIMEOUT_MS = 12_000;
@@ -50,7 +51,10 @@ export async function refreshGatewayProvider(providerId) {
   if (!provider) throw new Error(`Unknown provider: ${providerId}`);
   const credential = selectCredential(provider.id);
   const apiKey = credential?.apiKey || (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : null);
-  if (!apiKey && !provider.allowNoAuth) {
+  const configured = provider.type === "bedrock"
+    ? Boolean(provider.region && process.env[provider.accessKeyEnv] && process.env[provider.secretKeyEnv])
+    : Boolean(apiKey || provider.allowNoAuth);
+  if (!configured) {
     const health = setProviderHealth(provider.id, { status: "missing_configuration", message: "Configured API-key environment variable or encrypted credential pool is unavailable" });
     return { providerId: provider.id, ok: false, modelCount: 0, health, error: health.message };
   }
@@ -59,6 +63,12 @@ export async function refreshGatewayProvider(providerId) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
+    if (provider.type === "bedrock") {
+      const models = await listBedrockModels({ provider });
+      const catalog = saveProviderModels(provider.id, models);
+      const health = setProviderHealth(provider.id, { status: "healthy", httpStatus: 200, latencyMs: Date.now() - startedAt, message: null });
+      return { providerId: provider.id, ok: true, modelCount: models.length, models, catalog, health };
+    }
     const response = await fetch(modelEndpoint(provider), { headers: providerHeaders(provider, apiKey), signal: controller.signal });
     const latencyMs = Date.now() - startedAt;
     const text = await response.text();

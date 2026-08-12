@@ -3,7 +3,7 @@ import { getCredentialPoolStatus, markCredentialResult, selectCredential } from 
 import { getDedicatedProviderProfile, listDedicatedProviderProfiles } from "./providers/dedicated.js";
 
 const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "GITLAB_", "LOVABLE_", "KIRO_"];
-const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic", "gitlab"]);
+const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic", "gitlab", "bedrock"]);
 
 function splitModels(value) {
   if (Array.isArray(value)) return value.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim());
@@ -56,6 +56,10 @@ function normalizeProvider(provider) {
   const profile = getDedicatedProviderProfile(id);
   const type = String(provider.type || profile?.type || "openai").trim().toLowerCase();
   const apiKeyEnv = String(provider.apiKeyEnv || profile?.apiKeyEnv || "").trim();
+  const region = String(provider.region || profile?.region || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "").trim();
+  const accessKeyEnv = String(provider.accessKeyEnv || profile?.accessKeyEnv || "AWS_ACCESS_KEY_ID").trim();
+  const secretKeyEnv = String(provider.secretKeyEnv || profile?.secretKeyEnv || "AWS_SECRET_ACCESS_KEY").trim();
+  const sessionTokenEnv = String(provider.sessionTokenEnv || profile?.sessionTokenEnv || "AWS_SESSION_TOKEN").trim();
   const allowNoAuth = provider.allowNoAuth === true && profile?.localOnly === true;
   const credentialPool = getCredentialPoolStatus(id);
   if (!/^[a-z][a-z0-9_-]{1,63}$/.test(id)) {
@@ -63,6 +67,7 @@ function normalizeProvider(provider) {
   }
   if (!SUPPORTED_PROVIDER_TYPES.has(type)) throw new Error(`Provider ${id} has unsupported type: ${type}`);
   if (type === "gitlab" && !provider.baseUrl) throw new Error(`Provider ${id} requires an explicit self-managed GitLab baseUrl`);
+  if (type === "bedrock" && !region) throw new Error(`Provider ${id} requires an AWS region`);
   if (apiKeyEnv && !ALLOWED_SECRET_PREFIXES.some((prefix) => apiKeyEnv.startsWith(prefix))) {
     throw new Error(`Provider ${id} must reference a dedicated gateway secret environment variable`);
   }
@@ -74,7 +79,7 @@ function normalizeProvider(provider) {
     id,
     label: String(provider.label || id),
     type,
-    baseUrl: normalizeBaseUrl(provider.baseUrl || profile?.baseUrl, id),
+    baseUrl: normalizeBaseUrl(provider.baseUrl || profile?.baseUrl || (type === "bedrock" ? `https://bedrock-runtime.${region}.amazonaws.com` : null), id),
     apiKeyEnv: apiKeyEnv || null,
     allowNoAuth,
     adapter: String(provider.adapter || profile?.adapter || type).trim().toLowerCase(),
@@ -90,6 +95,21 @@ function normalizeProvider(provider) {
     headers: normalizeHeaders(provider.headers),
     enabled: provider.enabled !== false,
     expiresAt: normalizeExpiry(provider.expiresAt, id),
+    region: region || null,
+    accessKeyEnv: type === "bedrock" ? accessKeyEnv : null,
+    secretKeyEnv: type === "bedrock" ? secretKeyEnv : null,
+    sessionTokenEnv: type === "bedrock" ? sessionTokenEnv : null,
+    routingPriority: Number.isFinite(Number(provider.routingPriority)) ? Number(provider.routingPriority) : 100,
+    fallbackProviders: Array.isArray(provider.fallbackProviders) ? provider.fallbackProviders.map((item) => String(item).trim().toLowerCase()).filter(Boolean).slice(0, 20) : [],
+    costInputPerMillion: Number.isFinite(Number(provider.costInputPerMillion)) ? Number(provider.costInputPerMillion) : null,
+    costOutputPerMillion: Number.isFinite(Number(provider.costOutputPerMillion)) ? Number(provider.costOutputPerMillion) : null,
+    contextWindow: Number.isFinite(Number(provider.contextWindow)) ? Number(provider.contextWindow) : null,
+    oauthAuthUrl: provider.oauthAuthUrl ? normalizeBaseUrl(provider.oauthAuthUrl, `${id} OAuth authorization`) : null,
+    oauthTokenUrl: provider.oauthTokenUrl ? normalizeBaseUrl(provider.oauthTokenUrl, `${id} OAuth token`) : null,
+    oauthClientIdEnv: provider.oauthClientIdEnv ? String(provider.oauthClientIdEnv).trim() : null,
+    oauthClientSecretEnv: provider.oauthClientSecretEnv ? String(provider.oauthClientSecretEnv).trim() : null,
+    oauthScopes: Array.isArray(provider.oauthScopes) ? provider.oauthScopes.map((scope) => String(scope).trim()).filter(Boolean).slice(0, 30) : [],
+    oauthRedirectUri: provider.oauthRedirectUri ? String(provider.oauthRedirectUri).trim().slice(0, 512) : null,
   };
 }
 
@@ -121,6 +141,17 @@ function environmentProviders() {
       defaultModel: process.env.GATEWAY_ANTHROPIC_DEFAULT_MODEL,
       supportsTools: process.env.GATEWAY_ANTHROPIC_SUPPORTS_TOOLS !== "false",
       supportsVision: process.env.GATEWAY_ANTHROPIC_SUPPORTS_VISION === "true",
+    });
+  }
+  if ((process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION) && process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    const profile = getDedicatedProviderProfile("aws-bedrock");
+    providers.push({
+      ...profile,
+      id: "aws-bedrock",
+      region: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION,
+      baseUrl: process.env.GATEWAY_BEDROCK_BASE_URL || `https://bedrock-runtime.${process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION}.amazonaws.com`,
+      models: splitModels(process.env.GATEWAY_BEDROCK_MODELS).length ? splitModels(process.env.GATEWAY_BEDROCK_MODELS) : profile.models,
+      defaultModel: process.env.GATEWAY_BEDROCK_DEFAULT_MODEL || profile.models[0],
     });
   }
   const profileEnvProviders = [
@@ -184,7 +215,9 @@ export function getGatewayStatus() {
     configurationError,
     providers: providers.map(({ apiKeyEnv, headers, ...provider }) => ({
       ...provider,
-      configured: Boolean((apiKeyEnv && process.env[apiKeyEnv]) || provider.credentialPool?.ready),
+      configured: provider.type === "bedrock"
+        ? Boolean(provider.region && process.env[provider.accessKeyEnv] && process.env[provider.secretKeyEnv])
+        : Boolean((apiKeyEnv && process.env[apiKeyEnv]) || provider.credentialPool?.ready),
       credentialPool: provider.credentialPool,
       expired: isProviderExpired(provider),
       health: runtime.health[provider.id] || { status: "unknown", checkedAt: null },
@@ -232,7 +265,10 @@ export function resolveProvider(model) {
   }
   const credential = selectCredential(provider.id);
   const apiKey = credential?.apiKey || (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : null);
-  if (!apiKey && !provider.allowNoAuth) throw new Error(`Provider ${provider.id} is missing its configured API key`);
+  const ready = provider.type === "bedrock"
+    ? Boolean(provider.region && process.env[provider.accessKeyEnv] && process.env[provider.secretKeyEnv])
+    : Boolean(apiKey || provider.allowNoAuth);
+  if (!ready) throw new Error(`Provider ${provider.id} is missing its configured credential`);
   return { provider, model: modelId, apiKey, credentialId: credential?.credentialId || null, markCredentialResult: (success, statusCode) => credential?.credentialId && markCredentialResult(provider.id, credential.credentialId, success, statusCode) };
 }
 
@@ -241,18 +277,29 @@ export function resolveProviderById(providerId) {
   if (!provider) throw new Error(`Unknown, disabled, or expired provider: ${providerId}`);
   const credential = selectCredential(provider.id);
   const apiKey = credential?.apiKey || (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : null);
-  if (!apiKey && !provider.allowNoAuth) throw new Error(`Provider ${provider.id} is missing its configured API key`);
+  const ready = provider.type === "bedrock"
+    ? Boolean(provider.region && process.env[provider.accessKeyEnv] && process.env[provider.secretKeyEnv])
+    : Boolean(apiKey || provider.allowNoAuth);
+  if (!ready) throw new Error(`Provider ${provider.id} is missing its configured credential`);
   return { provider, apiKey, credentialId: credential?.credentialId || null, markCredentialResult: (success, statusCode) => credential?.credentialId && markCredentialResult(provider.id, credential.credentialId, success, statusCode) };
 }
 
 export function listGatewayModels() {
-  return enabledProviders().flatMap((provider) => provider.models.map((model) => ({
-    id: `${provider.id}/${model}`,
-    object: "model",
-    created: 0,
-    owned_by: provider.id,
-    capabilities: { tools: provider.supportsTools, vision: provider.supportsVision || Boolean(provider.visionProvider) },
-  })));
+  return enabledProviders().flatMap((provider) => {
+    const catalog = getProviderModels(provider.id);
+    const metadata = catalog?.metadata || {};
+    return provider.models.map((model) => ({
+      id: `${provider.id}/${model}`,
+      object: "model",
+      created: 0,
+      owned_by: provider.id,
+      context_window: metadata[model]?.contextWindow || provider.contextWindow || null,
+      pricing: { input_per_million: metadata[model]?.inputCostPerMillion ?? provider.costInputPerMillion, output_per_million: metadata[model]?.outputCostPerMillion ?? provider.costOutputPerMillion },
+      routing: { priority: metadata[model]?.routingPriority ?? provider.routingPriority, fallback_providers: provider.fallbackProviders },
+      capabilities: { tools: metadata[model]?.supportsTools ?? provider.supportsTools, vision: metadata[model]?.supportsVision ?? (provider.supportsVision || Boolean(provider.visionProvider)) },
+      metadata: metadata[model] || {},
+    }));
+  });
 }
 
 export function getProviderConfiguration(providerId) {

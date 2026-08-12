@@ -156,7 +156,7 @@ export default function ModelsPage() {
           <div className="flex items-start justify-between gap-4 mb-3">
             <div>
               <h2 className="text-sm font-semibold text-text-main">Import gateway models</h2>
-              <p className="text-xs text-text-muted mt-1">Add model IDs from a provider catalog. Use one ID per line or a JSON array of strings/objects.</p>
+              <p className="text-xs text-text-muted mt-1">Import IDs or JSON objects with alias, contextWindow, tools/vision flags, pricing, routingPriority, and upstreamModelId. AWS Bedrock accepts native model IDs such as anthropic.claude-*.</p>
             </div>
             <span className="material-symbols-outlined text-brand-400">upload_file</span>
           </div>
@@ -171,7 +171,7 @@ export default function ModelsPage() {
             <textarea
               value={importText}
               onChange={(e) => setImportText(e.target.value)}
-              placeholder={'qwen-max\\nqwen-vl-max\\n—or— ["model-a", {"id":"model-b"}]'}
+              placeholder={'qwen-max\\nqwen-vl-max\\n—or— [{"id":"model-b","alias":"Model B","contextWindow":128000,"supportsTools":true,"supportsVision":false,"inputCostPerMillion":3,"outputCostPerMillion":15,"routingPriority":10}]'}
               rows={3}
               className="w-full rounded-xl bg-surface border border-border text-text-main text-sm p-3 placeholder:text-text-subtle focus:outline-none focus:ring-2 focus:ring-brand-500/30"
             />

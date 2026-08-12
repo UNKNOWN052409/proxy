@@ -5,10 +5,12 @@ import { convertImagesToText } from "./vision.js";
 import { executeOpenAi, describeImageWithOpenAi } from "./providers/openai.js";
 import { executeAnthropic, describeImageWithAnthropic } from "./providers/anthropic.js";
 import { executeGitLab } from "./providers/gitlab.js";
+import { executeBedrock } from "./providers/bedrock.js";
 import { usageStore } from "../usage/store.js";
 
 function executorFor(provider) {
   if (provider.adapter === "gitlab" || provider.type === "gitlab") return executeGitLab;
+  if (provider.type === "bedrock" || provider.adapter === "bedrock") return executeBedrock;
   if (provider.type === "openai") return executeOpenAi;
   if (provider.type === "anthropic") return executeAnthropic;
   throw gatewayError(`Unsupported provider type: ${provider.type}`, 400, "invalid_provider");
@@ -17,6 +19,7 @@ function executorFor(provider) {
 function visionExecutorFor(provider) {
   if (provider.type === "openai") return describeImageWithOpenAi;
   if (provider.type === "anthropic") return describeImageWithAnthropic;
+  if (provider.type === "bedrock") return null;
   throw gatewayError(`Unsupported vision provider type: ${provider.type}`, 400, "invalid_provider");
 }
 
@@ -43,6 +46,7 @@ async function withVisionFallback({ provider, messages }) {
   }
   const describeImage = visionExecutorFor(visionProvider);
   const model = resolveVisionModel(visionProvider);
+  if (!describeImage) throw gatewayError(`Vision fallback adapter is not configured for provider ${visionProvider.id}`, 500, "configuration_error");
   try {
     const converted = await convertImagesToText(messages, (image) => describeImage({ provider: visionProvider, apiKey, model, image }));
     visionSelection.markCredentialResult?.(true, 200);
@@ -60,15 +64,24 @@ function toolShimMessages(messages, tools, toolChoice) {
 }
 
 function usageTokens(completion) {
-  const usage = completion?.usage;
-  return Number(usage?.total_tokens || (usage?.prompt_tokens || 0) + (usage?.completion_tokens || 0) || 0);
+  const usage = completion?.usage || {};
+  return Number(usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0) || 0);
 }
 
 function recordUsage({ provider, model, completion, startedAt, success, error = null }) {
+  const usage = completion?.usage || {};
+  const inputTokens = Number(usage.prompt_tokens || usage.input_tokens || 0);
+  const outputTokens = Number(usage.completion_tokens || usage.output_tokens || 0);
+  const costUsd = provider.costInputPerMillion != null || provider.costOutputPerMillion != null
+    ? (inputTokens / 1000000) * Number(provider.costInputPerMillion || 0) + (outputTokens / 1000000) * Number(provider.costOutputPerMillion || 0)
+    : 0;
   usageStore.record({
     provider: provider.id,
     model: `${provider.id}/${model}`,
     tokens: usageTokens(completion),
+    inputTokens,
+    outputTokens,
+    costUsd,
     duration: Date.now() - startedAt,
     success,
     error,

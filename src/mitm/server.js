@@ -231,6 +231,9 @@ function createServer() {
  * Start the MITM proxy server
  */
 function start() {
+  if (!MITM_CONFIG.ENABLED) {
+    return Promise.reject(new Error("Legacy MITM interception is disabled. Set ENABLE_LEGACY_MITM=true and LEGACY_MITM_ACK=I_UNDERSTAND_LOCAL_DEBUG_ONLY only for authorized local debugging."));
+  }
   return new Promise((resolve, reject) => {
     if (server) {
       log("Server already running");

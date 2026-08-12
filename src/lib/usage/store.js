@@ -17,23 +17,30 @@ function load() {
   loaded = true;
 }
 function save() { ensureDir(); try { fs.writeFileSync(USAGE_FILE, JSON.stringify(usageLog, null, 2), "utf-8"); } catch {} }
-function createMetric() { return { count: 0, tokens: 0, successful: 0, failed: 0, durationTotal: 0 }; }
+function createMetric() { return { count: 0, tokens: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, successful: 0, failed: 0, durationTotal: 0 }; }
 function addMetric(metric, usage) {
   metric.count++;
-  metric.tokens += Number(usage.tokens) || 0;
+  const inputTokens = Number(usage.inputTokens) || 0;
+  const outputTokens = Number(usage.outputTokens) || 0;
+  metric.inputTokens += inputTokens;
+  metric.outputTokens += outputTokens;
+  metric.tokens += Number(usage.tokens) || inputTokens + outputTokens;
+  metric.costUsd += Number(usage.costUsd) || 0;
   metric.durationTotal += Math.max(0, Number(usage.duration) || 0);
   if (usage.success) metric.successful++; else metric.failed++;
 }
 function finishMetric(metric) {
-  return { ...metric, averageLatencyMs: metric.count ? Math.round(metric.durationTotal / metric.count) : 0, successRate: metric.count ? Number((metric.successful / metric.count).toFixed(4)) : 0 };
+  return { ...metric, costUsd: Number(metric.costUsd.toFixed(8)), averageLatencyMs: metric.count ? Math.round(metric.durationTotal / metric.count) : 0, successRate: metric.count ? Number((metric.successful / metric.count).toFixed(4)) : 0 };
 }
 
 load();
 
 export const usageStore = {
-  record({ model, provider, tokens, duration, success = true, error = null }) {
+  record({ model, provider, tokens, inputTokens = 0, outputTokens = 0, costUsd = 0, duration, success = true, error = null }) {
     load();
-    usageLog.push({ id: `usage-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, model: model || "unknown", provider: provider || "unknown", tokens: Number(tokens) || 0, duration: Math.max(0, Number(duration) || 0), success: Boolean(success), error: error ? String(error).slice(0, 500) : null, timestamp: new Date().toISOString(), date: new Date().toISOString().split("T")[0] });
+    const normalizedInput = Number(inputTokens) || 0;
+    const normalizedOutput = Number(outputTokens) || 0;
+    usageLog.push({ id: `usage-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, model: model || "unknown", provider: provider || "unknown", tokens: Number(tokens) || normalizedInput + normalizedOutput, inputTokens: normalizedInput, outputTokens: normalizedOutput, costUsd: Number(costUsd) || 0, duration: Math.max(0, Number(duration) || 0), success: Boolean(success), error: error ? String(error).slice(0, 500) : null, timestamp: new Date().toISOString(), date: new Date().toISOString().split("T")[0] });
     if (usageLog.length > 100000) usageLog = usageLog.slice(-100000);
     save();
   },
@@ -59,6 +66,9 @@ export const usageStore = {
       successful: overall.successful,
       failed: overall.failed,
       totalTokens: overall.tokens,
+      inputTokens: overall.inputTokens,
+      outputTokens: overall.outputTokens,
+      costUsd: Number(overall.costUsd.toFixed(8)),
       averageLatencyMs: finishMetric(overall).averageLatencyMs,
       successRate: finishMetric(overall).successRate,
       last24h,
