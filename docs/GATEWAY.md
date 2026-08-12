@@ -199,7 +199,20 @@ Usage analytics record input tokens, output tokens, total tokens, latency, succe
 
 The old Kiro account-import endpoint is disabled with HTTP 410. The legacy MITM server refuses startup unless both `ENABLE_LEGACY_MITM=true` and `LEGACY_MITM_ACK=I_UNDERSTAND_LOCAL_DEBUG_ONLY` are explicitly set for authorized local debugging. These legacy paths are not part of the compliant gateway.
 
-## Black-box model identity and behavior audit
+## API forensics and black-box model identity audit
+
+The gateway now includes a bounded **API-forensics** layer for authorized endpoints. It combines the identity/behavior probes below with passive transport evidence. It does not scan ports, exploit a provider, bypass authentication, extract credentials, inspect cookies, or attempt to compromise a third-party service.
+
+| Forensic class | Evidence collected | Safe interpretation |
+|---|---|---|
+| Transport and CDN | Final host, HTTPS scheme, redirects, selected `Server`, `Via`, CDN/request markers, and cache signals. | Indicates observable intermediaries such as Cloudflare, Vercel, Fly, Nginx, or Envoy; it does not reveal private topology. |
+| Error signatures | HTTP status, structured error type/code, and bounded CDN/generic error classification. | Helps identify adapter or intermediary behavior without storing the error body. |
+| Response consistency | Model IDs across catalog and completion responses, status sequence, and response shapes. | Detects contradictions and model-switching signals. |
+| Latency pattern | Per-request latency for model discovery and bounded probes. | Shows network/provider behavior; local gateway overhead is reported separately. |
+| Capability behavior | Sentinel, self-report, tool, and leakage checks. | Shows observable behavior only, not model-weight identity. |
+
+The repeatable CLI harness is `scripts/api-forensics.js`. Run it with `FORENSICS_BASE_URL`, `FORENSICS_API_KEY`, `FORENSICS_MODEL`, and optionally `FORENSICS_PROBES=1..3`. It prints only redacted evidence metadata and never prints the API key or response body.
+
 
 The **Dashboard → Gateway → Endpoint audit** action can test an explicitly configured API endpoint and selected model. The audit sends bounded, non-invasive probes and stores metadata only. It never stores the returned answer, hidden prompts, cookies, or authorization values.
 

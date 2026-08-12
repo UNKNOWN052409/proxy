@@ -96,6 +96,20 @@ test("endpoint audit reports model mismatch as evidence, not proof", () => {
   assert.match(result.limitation, /cannot prove/i);
 });
 
+test("API forensics classifies transport markers and errors without storing bodies", () => {
+  const transport = audit.classifyTransport({ url: "https://api.example.test/v1/models", status: 200, headers: { server: "cloudflare", "cf-ray": "abc", "x-request-id": "req-1", authorization: "secret" } });
+  assert.equal(transport.scheme, "https");
+  assert.equal(transport.finalHost, "api.example.test");
+  assert.ok(transport.intermediaryMarkers.includes("cloudflare"));
+  assert.equal(transport.headers.authorization, undefined);
+  const error = audit.classifyError({ ok: false, status: 502, text: "Cloudflare upstream error", data: null });
+  assert.equal(error.signature.bodyClass, "cdn_error_page");
+  assert.equal(error.storedBody, false);
+  const report = audit.summarizeForensics({ requestUrl: "https://api.example.test/v1/models", modelResponse: { url: "https://api.example.test/v1/models", status: 200, headers: { server: "cloudflare", "cf-ray": "abc" }, latencyMs: 12, ok: true, data: { data: [] }, text: "" }, probes: [] });
+  assert.equal(report.storedBodies, false);
+  assert.equal(report.intermediarySuspected, true);
+});
+
 test("behavioral audit summarizes observable probes without claiming hidden identity proof", () => {
   const summary = audit.summarizeBehavior({ probes: [
     { id: "sentinel", status: 200, data: { model: "deepseek-chat", choices: [{ message: { content: "GATEWAY_AUDIT_OK" } }] } },

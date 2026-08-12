@@ -73,6 +73,64 @@ export function classifyIdentity({ advertisedModel, reportedModel, headers = {},
   };
 }
 
+function forensicHeaders(headers = {}) {
+  const allow = /^(server|via|date|content-type|content-encoding|cache-control|age|vary|x-request-id|x-correlation-id|x-powered-by|x-provider|x-route|x-upstream|x-model|cf-ray|cf-cache-status|fly-request-id|x-vercel-id|x-cache|x-cache-status)$/i;
+  const result = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (allow.test(name)) result[String(name).toLowerCase()] = String(value || "").slice(0, 200);
+  }
+  return result;
+}
+
+function classifyTransport({ url, headers = {}, status = null, redirected = false }) {
+  const safe = forensicHeaders(headers);
+  const markers = [];
+  if (safe.server) markers.push(`server:${safe.server.toLowerCase()}`);
+  if (safe.via) markers.push(`via:${safe.via.toLowerCase()}`);
+  if (safe["cf-ray"] || safe["cf-cache-status"]) markers.push("cloudflare");
+  if (safe["x-vercel-id"]) markers.push("vercel");
+  if (safe["fly-request-id"]) markers.push("fly");
+  if (safe["x-powered-by"]) markers.push(`powered-by:${safe["x-powered-by"].toLowerCase()}`);
+  return {
+    scheme: (() => { try { return new URL(url).protocol.replace(":", ""); } catch { return null; } })(),
+    finalHost: (() => { try { return new URL(url).host; } catch { return null; } })(),
+    status,
+    redirected: Boolean(redirected),
+    headers: safe,
+    intermediaryMarkers: [...new Set(markers)],
+    evidenceOnly: true,
+    limitation: "Transport markers identify observable infrastructure signals, not the hidden model or private upstream topology.",
+  };
+}
+
+function classifyError(result) {
+  if (!result) return { present: false };
+  const error = result.data?.error;
+  const text = trimText(result.text, 800).toLowerCase();
+  const signature = error ? {
+    type: typeof error === "object" ? String(error.type || "") : "",
+    code: typeof error === "object" ? String(error.code || "") : "",
+    status: result.status,
+  } : { status: result.status, bodyClass: text.includes("cloudflare") ? "cdn_error_page" : result.ok ? "success" : "generic_error" };
+  return { present: !result.ok, signature, storedBody: false };
+}
+
+function summarizeForensics(result) {
+  const responses = [result.modelResponse, ...(result.probes || [])];
+  const statuses = responses.map((item) => item?.status).filter((value) => value !== undefined && value !== null);
+  const latencies = responses.map((item) => Number(item?.latencyMs)).filter(Number.isFinite);
+  const uniqueModels = [...new Set(responses.map((item) => item?.data?.model).filter(Boolean).map(String))];
+  return {
+    transport: classifyTransport({ url: result.modelResponse?.url || result.requestUrl, headers: { ...result.modelResponse?.headers, ...result.probe?.headers }, status: result.modelResponse?.status, redirected: result.modelResponse?.redirected }),
+    statusSequence: statuses,
+    latencyMs: latencies.map((value) => Math.round(value * 100) / 100),
+    responseModelSet: uniqueModels,
+    errors: responses.map(classifyError).filter((item) => item.present),
+    intermediarySuspected: Boolean((result.modelResponse?.headers?.server || "").match(/cloudflare|nginx|envoy|nginx|vercel/i) || result.modelResponse?.headers?.["cf-ray"] || result.modelResponse?.headers?.via),
+    storedBodies: false,
+  };
+}
+
 function parseJson(text) {
   try { return text ? JSON.parse(text) : null; } catch { return null; }
 }
@@ -91,7 +149,7 @@ function headersFor(provider, apiKey) {
   return { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, ...safe };
 }
 
-async function requestJson(url, options, timeoutMs = 15_000) {
+async function requestJson(url, options, timeoutMs = 30_000) {
   const started = process.hrtime.bigint();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -101,10 +159,24 @@ async function requestJson(url, options, timeoutMs = 15_000) {
     return {
       ok: response.ok,
       status: response.status,
+      url: response.url || url,
+      redirected: response.redirected,
       headers: Object.fromEntries(response.headers.entries()),
       data: parseJson(text),
       text: trimText(text),
       latencyMs: Number(process.hrtime.bigint() - started) / 1e6,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: null,
+      url,
+      redirected: false,
+      headers: {},
+      data: null,
+      text: "",
+      latencyMs: Number(process.hrtime.bigint() - started) / 1e6,
+      error: error?.name === "AbortError" ? "timeout" : "request_failed",
     };
   } finally {
     clearTimeout(timer);
@@ -187,7 +259,7 @@ export async function auditProviderEndpoint({ provider, apiKey, model, probeCoun
     ? await auditAnthropic(provider, apiKey, model, probeCount)
     : await auditOpenAi(provider, apiKey, model, probeCount);
   const totalMs = Number(process.hrtime.bigint() - started) / 1e6;
-  const upstreamMs = (result.modelResponse?.latencyMs || 0) + (result.probe?.latencyMs || 0);
+  const upstreamMs = (result.modelResponse?.latencyMs || 0) + (Array.isArray(result.probes) ? result.probes.reduce((sum, item) => sum + (item?.latencyMs || 0), 0) : (result.probe?.latencyMs || 0));
   const text = result.text || "";
   const modelList = Array.isArray(result.modelResponse?.data?.data)
     ? result.modelResponse.data.data.map((item) => item?.id).filter(Boolean)
@@ -204,6 +276,7 @@ export async function auditProviderEndpoint({ provider, apiKey, model, probeCoun
     probeStatus: result.probe?.status || null,
     identity: classifyIdentity({ advertisedModel: model || provider.defaultModel, reportedModel, headers: { ...result.modelResponse?.headers, ...result.probe?.headers }, responseText: text }),
     behavioral: summarizeBehavior(result),
+    forensics: summarizeForensics(result),
     leakage: detectLeakage(text),
     probeTokenMatched: text.trim() === AUDIT_TOKEN,
     upstreamLatencyMs: Math.round(upstreamMs * 100) / 100,
@@ -220,4 +293,4 @@ export async function auditProviderEndpoint({ provider, apiKey, model, probeCoun
   return audit;
 }
 
-export const __testables = { normalizeIdentity, safeHeaderSignals, parseJson, endpoint, summarizeBehavior, AUDIT_TOKEN };
+export const __testables = { normalizeIdentity, safeHeaderSignals, forensicHeaders, classifyTransport, classifyError, summarizeBehavior, summarizeForensics, parseJson, endpoint, AUDIT_TOKEN };
