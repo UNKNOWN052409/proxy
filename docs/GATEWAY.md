@@ -186,3 +186,12 @@ Gateway usage entries now preserve duration, result status, provider, model, and
 The Gateway dashboard exposes dedicated profiles for OpenAI/ChatGPT, Anthropic, Qwen/DashScope, Moonshot Kimi, xAI/Grok, self-managed GitLab Duo, Lovable custom endpoints, Kiro custom endpoints, and local OpenCode-compatible services. Qwen, Kimi, and Grok use their documented OpenAI-compatible API boundaries. GitLab is restricted to explicitly authorized self-managed instances. OpenCode can be local and no-auth upstream, but the public gateway remains authenticated. Lovable and Kiro are metadata/custom-endpoint profiles unless the user supplies an authorized documented endpoint.
 
 Provider cards use locally bundled SVG assets. Where a Simple Icons source was unavailable, the project uses a local branded provider mark as a UI identifier and does not claim it is official trademark artwork. Provider credentials remain server-side and are never placed in the logo directory or returned by status APIs.
+
+
+## Manual model-catalog import
+
+The **Dashboard → Models** page now includes an **Import gateway models** panel for configured providers. Paste one model ID per line, comma-separated IDs, or a JSON array containing strings or objects with an `id` field. The import is authenticated, bounded to 1,000 entries, deduplicated, and applied atomically.
+
+The default mode merges imported IDs with the existing provider catalog. The optional **Replace existing catalog** mode replaces only that provider’s catalog. Model IDs may contain provider-supported punctuation such as `:`, `@`, `-`, `_`, and `.` but cannot contain whitespace or path separators. The import accepts model metadata identifiers only; it never accepts API keys, cookies, passwords, authorization headers, or OAuth secrets.
+
+The imported catalog is persisted with a source label and timestamp and appears in `/v1/models` alongside the provider’s configured models. Invalid input rolls back without changing the previous catalog.

@@ -7,7 +7,7 @@ import { __testables as config } from "../src/lib/gateway/config.js";
 import { parseClientManagedToolResponse } from "../src/lib/gateway/tools.js";
 import { validateImageUrl, countImages } from "../src/lib/gateway/vision.js";
 import { createChatCompletion, messageText } from "../src/lib/gateway/openai.js";
-import { __testables as runtime } from "../src/lib/gateway/runtime-store.js";
+import { __testables as runtime, getGatewayRuntimeState, importProviderModels, restoreGatewayRuntimeState } from "../src/lib/gateway/runtime-store.js";
 import { __testables as health } from "../src/lib/gateway/health.js";
 import { __testables as port, listenWithPortFallback } from "../src/lib/runtime/port.js";
 import { __testables as credentials } from "../src/lib/gateway/credentials.js";
@@ -142,6 +142,22 @@ test("port utilities fall forward when the preferred localhost port is occupied"
   await new Promise((resolve) => blocker.close(resolve));
 });
 
+
+test("model catalog import validates IDs and supports merge/replace semantics", () => {
+  const before = getGatewayRuntimeState();
+  try {
+    const merged = importProviderModels("test-model-import", ["model-a", "model-b", "model-a"]);
+    assert.equal(merged.imported, 2);
+    assert.equal(merged.total, 2);
+    assert.equal(merged.source, "manual-import-merge");
+    const replaced = importProviderModels("test-model-import", [{ id: "model-c" }], { replace: true });
+    assert.equal(replaced.total, 1);
+    assert.throws(() => importProviderModels("test-model-import", ["bad model"]), /may not contain paths or whitespace/);
+    assert.throws(() => importProviderModels("test-model-import", [{ id: "../secret" }]), /may not contain paths or whitespace/);
+  } finally {
+    restoreGatewayRuntimeState(before);
+  }
+});
 
 test("dedicated provider profiles expose safe official and local boundaries", async () => {
   const { DEDICATED_PROVIDER_PROFILES } = await import("../src/lib/gateway/providers/dedicated.js");

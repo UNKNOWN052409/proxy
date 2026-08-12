@@ -37,9 +37,16 @@ export default function ModelsPage() {
   const [search, setSearch] = useState("");
   const [providerFilter, setProviderFilter] = useState("all");
   const [providers, setProviders] = useState([]);
+  const [gatewayProviders, setGatewayProviders] = useState([]);
+  const [importProvider, setImportProvider] = useState("");
+  const [importText, setImportText] = useState("");
+  const [importReplace, setImportReplace] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
 
   useEffect(() => {
     fetchModels();
+    fetchGatewayProviders();
   }, []);
 
   const fetchModels = async () => {
@@ -56,6 +63,55 @@ export default function ModelsPage() {
       console.error("Failed to fetch models:", e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchGatewayProviders = async () => {
+    try {
+      const res = await fetch("/api/gateway/providers", { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const configured = (data.status?.providers || []).filter((provider) => provider.configured || provider.allowNoAuth);
+      setGatewayProviders(configured);
+      if (!importProvider && configured[0]) setImportProvider(configured[0].id);
+    } catch (e) {
+      console.error("Failed to fetch gateway providers:", e);
+    }
+  };
+
+  const parseModelImport = (text) => {
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error("Enter one model per line or a JSON array");
+    if (trimmed.startsWith("[")) {
+      const parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) throw new Error("JSON import must be an array");
+      return parsed;
+    }
+    return trimmed.split(/[\r\n,]+/).map((model) => model.trim()).filter(Boolean);
+  };
+
+  const importModels = async () => {
+    setImportMessage("");
+    setImporting(true);
+    try {
+      const models = parseModelImport(importText);
+      if (!importProvider) throw new Error("Select a configured provider first");
+      const res = await fetch("/api/gateway/providers", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "import_models", providerId: importProvider, models, replace: importReplace }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Model import failed");
+      setImportMessage(`${data.imported.imported} model(s) imported; ${data.imported.total} total for ${importProvider}.`);
+      setImportText("");
+      await fetchModels();
+      await fetchGatewayProviders();
+    } catch (e) {
+      setImportMessage(e.message || "Model import failed");
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -94,6 +150,46 @@ export default function ModelsPage() {
         <h1 className="text-2xl font-bold text-text-main">Models</h1>
         <p className="text-text-muted text-sm mt-1">Browse all available AI models from every provider</p>
       </div>
+
+      {gatewayProviders.length > 0 && (
+        <Card>
+          <div className="flex items-start justify-between gap-4 mb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-text-main">Import gateway models</h2>
+              <p className="text-xs text-text-muted mt-1">Add model IDs from a provider catalog. Use one ID per line or a JSON array of strings/objects.</p>
+            </div>
+            <span className="material-symbols-outlined text-brand-400">upload_file</span>
+          </div>
+          <div className="grid md:grid-cols-[180px_1fr] gap-3">
+            <select
+              value={importProvider}
+              onChange={(e) => setImportProvider(e.target.value)}
+              className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+            >
+              {gatewayProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.label || provider.id}</option>)}
+            </select>
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              placeholder={'qwen-max\\nqwen-vl-max\\n—or— ["model-a", {"id":"model-b"}]'}
+              rows={3}
+              className="w-full rounded-xl bg-surface border border-border text-text-main text-sm p-3 placeholder:text-text-subtle focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+            />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-3">
+            <label className="flex items-center gap-2 text-xs text-text-muted">
+              <input type="checkbox" checked={importReplace} onChange={(e) => setImportReplace(e.target.checked)} />
+              Replace existing catalog instead of merging
+            </label>
+            <div className="flex items-center gap-3">
+              {importMessage && <span className="text-xs text-text-muted">{importMessage}</span>}
+              <button onClick={importModels} disabled={importing || !importText.trim()} className="h-9 px-4 rounded-lg bg-brand-500 text-white text-sm font-medium hover:bg-brand-600 disabled:opacity-50">
+                {importing ? "Importing..." : "Import models"}
+              </button>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Search + Filter + Refresh */}
       <div className="flex flex-col sm:flex-row gap-3">

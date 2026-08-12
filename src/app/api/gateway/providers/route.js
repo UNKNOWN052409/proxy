@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getGatewayProviders, getGatewayStatus } from "@/lib/gateway/config";
-import { getGatewayRuntimeState, mergeProviderConfiguration, restoreGatewayRuntimeState, setProviderEnabled } from "@/lib/gateway/runtime-store";
+import { getGatewayRuntimeState, importProviderModels, mergeProviderConfiguration, restoreGatewayRuntimeState, setProviderEnabled } from "@/lib/gateway/runtime-store";
 import { importEncryptedCredentials, listCredentialMetadata } from "@/lib/gateway/credentials";
 
 export const runtime = "nodejs";
@@ -35,6 +35,14 @@ export async function POST(request) {
         throw validationError;
       }
       return NextResponse.json({ ok: true, results, status: getGatewayStatus() }, { status: 201 });
+    }
+    if (action === "import_models") {
+      const providerId = String(body.providerId || "").trim().toLowerCase();
+      if (!providerId) return error("providerId is required");
+      const provider = getGatewayProviders().find((candidate) => candidate.id === providerId);
+      if (!provider) return error(`Unknown or unconfigured provider: ${providerId}`);
+      const imported = importProviderModels(providerId, body.models, { replace: body.replace === true });
+      return NextResponse.json({ ok: true, imported, status: getGatewayStatus() }, { status: 201 });
     }
     if (action === "set_enabled") {
       const providerId = String(body.providerId || "");

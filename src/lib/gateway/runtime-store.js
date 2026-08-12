@@ -149,6 +149,38 @@ export function getProviderModels(providerId) {
   return entry ? clone(entry) : null;
 }
 
+function normalizeImportedModels(models) {
+  if (!Array.isArray(models)) throw new Error("Model import must contain an array of model IDs or model objects");
+  if (models.length > 1000) throw new Error("At most 1,000 models may be imported at once");
+  const normalized = models.map((entry) => {
+    const id = typeof entry === "string" ? entry : entry && typeof entry === "object" ? entry.id : "";
+    const value = String(id || "").trim();
+    if (!value || value.length > 256) throw new Error("Each imported model must have an ID between 1 and 256 characters");
+    if (/\s/.test(value) || value.includes("/") || value.includes("\\")) throw new Error("Imported model IDs may not contain paths or whitespace");
+    return value;
+  });
+  return [...new Set(normalized)];
+}
+
+export function importProviderModels(providerId, models, { replace = false } = {}) {
+  const id = normalizeId(providerId);
+  if (!id) throw new Error("providerId is required");
+  const imported = normalizeImportedModels(models);
+  const state = readState();
+  const previous = state.modelCatalog[id]?.models || [];
+  const combined = replace ? imported : normalizeImportedModels([...previous, ...imported]);
+  state.modelCatalog[id] = {
+    ...(state.modelCatalog[id] || {}),
+    models: combined,
+    source: replace ? "manual-import" : "manual-import-merge",
+    importedAt: new Date().toISOString(),
+    refreshedAt: state.modelCatalog[id]?.refreshedAt || null,
+  };
+  state.lastRefreshAt = state.modelCatalog[id].importedAt;
+  writeState(state);
+  return clone({ providerId: id, imported: imported.length, total: combined.length, source: state.modelCatalog[id].source, importedAt: state.modelCatalog[id].importedAt });
+}
+
 export function saveProviderAudit(providerId, audit) {
   const id = normalizeId(providerId);
   const state = readState();
