@@ -53,6 +53,11 @@ export const accountStore = {
     return [...accounts];
   },
 
+  getById(id) {
+    load();
+    return accounts.find((account) => account.id === id) || null;
+  },
+
   getActive() {
     return accounts.filter(a => {
       if (!a.active) return false;
@@ -86,10 +91,11 @@ export const accountStore = {
     if (existing >= 0) {
       accounts[existing] = { ...accounts[existing], ...entry, id: accounts[existing].id };
       if (account.label) accounts[existing].label = account.label;
-    } else {
-      accounts.push(entry);
+      save();
+      return accounts[existing];
     }
 
+    accounts.push(entry);
     save();
     return entry;
   },
@@ -124,6 +130,7 @@ export const accountStore = {
     if (!Array.isArray(list)) list = [json];
 
     const normalized = list.map(item => {
+      if (item.password || item.cookie || item.cookies || item.session || item.sessionToken || item.headers) return null;
       if (item.accessToken || item.refreshToken) {
         return {
           accessToken: item.accessToken || null,
@@ -160,7 +167,7 @@ export const accountStore = {
         source,
         label: item.label || item.email || null,
       };
-    }).filter(a => a.accessToken || a.refreshToken);
+    }).filter(a => a && (a.accessToken || a.refreshToken));
 
     return this.bulkImport(normalized, source);
   },

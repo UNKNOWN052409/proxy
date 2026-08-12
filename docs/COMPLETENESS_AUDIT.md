@@ -76,3 +76,14 @@ The dashboard is not a static mock for the new gateway surfaces: it calls real A
 ## Bottom line
 
 The active gateway is functional for explicit OpenAI/Anthropic-compatible providers, AWS Bedrock Converse/SigV4 routing and discovery, encrypted authorized API-key/OAuth-token pools, local port fallback, model metadata import, token/cost analytics, endpoint evidence auditing, and the enhanced safe dashboard. Kiro and Lovable remain documented authorized custom-endpoint profiles rather than undocumented private-client adapters; named provider live validation and full interactive graph UI remain credential/environment-dependent. Cookie/session conversion, third-party session MITM, free-tier bypass, and legacy account dumps are intentionally absent. The standalone smoke test measured approximately 59 MB for the test process, selected port 2019 when 2018 was occupied, and returned HTTP 200 for both `/health` and authenticated `/v1/models`; this is not a concurrency/load benchmark.
+
+
+## Account-flow audit — 2026-08-12
+
+The active `/api/accounts` route was inconsistent with the compliant gateway: it used the Kiro token store without enforcing a dashboard role and accepted generic proxy-shaped token objects. It is now admin-only, hides access and refresh tokens in list responses, accepts only explicit access/refresh OAuth tokens for add/import, and rejects password, cookie, session, session-token, and header fields.
+
+A real duplicate-account defect was found. The store persisted the existing account ID but returned a newly generated temporary ID, which could make a successful update appear to fail or cause a later test/delete action to target the wrong record. The store now returns the persisted record and exposes a compatible `getById` lookup.
+
+An isolated smoke test passed add, duplicate update, safe token import, rejection of unsafe records, lookup, and delete. The active gateway suite passed 20/20 and the production build passed. The broader legacy `tests/accounts.test.js` suite still targets the separate password-based SQLite account store and fails because that retired store is not the active compliant Kiro credential store. The old 9Router/OmniRouter/password import UI is stale; its HTTP import/export routes remain intentionally disabled with HTTP 410.
+
+The compliant path can import explicitly authorized API/OAuth token material through provider management or the Kiro device-auth flow. It does not import browser cookies, session cookies, passwords, private client tokens, or account dumps, and it does not convert those materials into API credentials.
