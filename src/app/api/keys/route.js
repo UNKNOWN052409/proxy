@@ -3,16 +3,20 @@
 // POST /api/keys - Create new key
 import { NextResponse } from "next/server";
 import { generateApiKey } from "@/lib/api-keys/generator";
+import { currentUser, requireRole } from "@/lib/platform/auth";
+import { getScope } from "@/lib/platform/store";
 import { createKey, listKeys } from "@/lib/api-keys/store";
 
 // GET - List all API keys (non-revoked by default)
 export async function GET(request) {
   try {
+    const actor = await currentUser();
+    requireRole(actor, ["admin", "user"]);
     const { searchParams } = new URL(request.url);
     const includeRevoked = searchParams.get("includeRevoked") === "true";
     const includeExpired = searchParams.get("includeExpired") === "true";
 
-    const keys = listKeys({ includeRevoked, includeExpired });
+    const keys = listKeys({ includeRevoked, includeExpired }).filter((key) => actor.role === "admin" || key.owner_user_id === actor.id);
 
     return NextResponse.json({
       success: true,
@@ -35,8 +39,13 @@ export async function GET(request) {
 // POST - Create new API key
 export async function POST(request) {
   try {
+    const actor = await currentUser();
+    requireRole(actor, ["admin", "user"]);
     const body = await request.json();
-    const { name, expiresInDays = 365 } = body;
+    const { name, expiresInDays = 365, providerIds = [], modelIds = [] } = body;
+    if (!Array.isArray(providerIds) || !Array.isArray(modelIds) || providerIds.length > 100 || modelIds.length > 200) {
+      return NextResponse.json({ success: false, error: "Invalid scope lists" }, { status: 400 });
+    }
 
     // Validate name
     if (!name || typeof name !== "string" || name.trim().length === 0) {
@@ -63,6 +72,13 @@ export async function POST(request) {
 
     // Generate key
     const keyData = generateApiKey({ name: name.trim(), expiresInDays });
+    keyData.owner_user_id = actor.id;
+    const allowed = actor.role === "admin" ? { provider_ids: providerIds, model_ids: modelIds } : getScope(actor.id);
+    keyData.provider_ids = actor.role === "admin" ? providerIds : providerIds.filter((id) => allowed.provider_ids.includes(id));
+    keyData.model_ids = actor.role === "admin" ? modelIds : modelIds.filter((id) => allowed.model_ids.includes(id));
+    if (actor.role === "user" && (keyData.provider_ids.length !== providerIds.length || keyData.model_ids.length !== modelIds.length)) {
+      return NextResponse.json({ success: false, error: "Requested scope exceeds your assigned permissions" }, { status: 403 });
+    }
 
     // Store key (hashed)
     const storedKey = createKey(keyData);

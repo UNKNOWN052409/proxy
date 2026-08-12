@@ -3,6 +3,8 @@
  */
 import { userConfig } from "@/lib/config/store";
 import { cookies } from "next/headers";
+import { ensureAdmin, authenticateUser } from "@/lib/platform/store";
+import { createSession, sessionCookie } from "@/lib/platform/auth";
 
 export async function POST(request) {
   try {
@@ -13,9 +15,12 @@ export async function POST(request) {
     }
 
     // If no password set yet, this is the first setup
-    if (!userConfig.hasPassword()) {
+      if (!userConfig.hasPassword()) {
       userConfig.setPassword(password);
+      ensureAdmin(process.env.PLATFORM_ADMIN_EMAIL || "admin@local.gateway", password);
+      const platformUser = authenticateUser(process.env.PLATFORM_ADMIN_EMAIL || "admin@local.gateway", password);
       const cookieStore = await cookies();
+      cookieStore.set(sessionCookie(createSession(platformUser)));
       cookieStore.set("kp-auth", "authenticated", {
         httpOnly: true,
         sameSite: "lax",
@@ -30,7 +35,10 @@ export async function POST(request) {
       return Response.json({ success: false, error: "Wrong password" }, { status: 401 });
     }
 
+    ensureAdmin(process.env.PLATFORM_ADMIN_EMAIL || "admin@local.gateway", password);
+    const platformUser = authenticateUser(process.env.PLATFORM_ADMIN_EMAIL || "admin@local.gateway", password);
     const cookieStore = await cookies();
+    cookieStore.set(sessionCookie(createSession(platformUser)));
     cookieStore.set("kp-auth", "authenticated", {
       httpOnly: true,
       sameSite: "lax",
