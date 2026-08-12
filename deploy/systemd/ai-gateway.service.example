@@ -1,0 +1,25 @@
+[Unit]
+Description=Compliant AI Gateway (loopback)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/proxy
+Environment=NODE_ENV=production
+Environment=GATEWAY_HOST=127.0.0.1
+Environment=GATEWAY_PORT=2018
+Environment=PORT_FALLBACK_MAX_ATTEMPTS=20
+ExecStart=/usr/bin/node /home/ubuntu/proxy/src/gateway-server.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/proxy/data
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

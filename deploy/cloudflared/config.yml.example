@@ -1,0 +1,12 @@
+# Copy to ~/.cloudflared/config.yml after creating a named tunnel.
+tunnel: YOUR_TUNNEL_UUID
+credentials-file: /home/ubuntu/.cloudflared/YOUR_TUNNEL_UUID.json
+
+ingress:
+  - hostname: api.example.com
+    service: http://127.0.0.1:2018
+    originRequest:
+      httpHostHeader: api.example.com
+      connectTimeout: 10s
+      noHappyEyeballs: true
+  - service: http_status:404
