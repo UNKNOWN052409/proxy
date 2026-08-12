@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start --port 20127",
     "gateway": "node src/gateway-server.js",
+    "gateway:refresh-models": "node src/jobs/refresh-gateway-models.js",
     "test": "node --test tests/**/*.test.js"
   },
   "dependencies": {

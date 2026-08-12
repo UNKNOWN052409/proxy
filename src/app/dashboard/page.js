@@ -178,7 +178,30 @@ export default function DashboardHome() {
               <span>Successful: <strong className="text-emerald-400">{formatNumber(usage.successful)}</strong></span>
               <span>Failed: <strong className="text-red-400">{formatNumber(usage.failed)}</strong></span>
               <span>Tokens: <strong className="text-text-main">{formatNumber(usage.totalTokens || 0)}</strong></span>
+              <span>Avg. latency: <strong className="text-text-main">{formatNumber(usage.averageLatencyMs || 0)} ms</strong></span>
+              <span>Success rate: <strong className="text-emerald-400">{Math.round((usage.successRate || 0) * 100)}%</strong></span>
             </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Provider Reliability */}
+      {usage?.providers && Object.keys(usage.providers).length > 0 && (
+        <Card title="Provider Reliability" icon="monitor_heart" subtitle="Gateway request health and latency by provider">
+          <div className="space-y-2">
+            {Object.entries(usage.providers)
+              .sort(([, a], [, b]) => b.count - a.count)
+              .slice(0, 8)
+              .map(([provider, stats]) => (
+                <div key={provider} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 p-3 rounded-lg bg-bg">
+                  <div className="min-w-0">
+                    <p className="text-sm text-text-main truncate">{provider}</p>
+                    <p className="text-[11px] text-text-subtle">{formatNumber(stats.count)} request{stats.count === 1 ? "" : "s"} · {formatNumber(stats.tokens)} tokens</p>
+                  </div>
+                  <span className={`text-xs font-medium ${stats.successRate >= 0.98 ? "text-emerald-400" : stats.successRate >= 0.9 ? "text-amber-300" : "text-red-400"}`}>{Math.round(stats.successRate * 100)}% success</span>
+                  <span className="text-xs text-text-muted tabular-nums">{formatNumber(stats.averageLatencyMs)} ms</span>
+                </div>
+              ))}
           </div>
         </Card>
       )}

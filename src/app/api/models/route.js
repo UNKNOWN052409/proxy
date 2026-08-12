@@ -1,32 +1,28 @@
 /**
- * GET /api/models — returns models from all providers
- * GET /api/models?provider=kiro — filter by provider
+ * GET /api/models — returns legacy models plus explicitly configured gateway models.
+ * GET /api/models?provider=<id> — filters by provider identifier.
  */
+import { getAllModels, getModelsByProvider } from "@/lib/providers";
+import { listGatewayModels } from "@/lib/gateway/config";
 
-import { getAllModels, getModelsByProvider, getProvider } from "@/lib/providers";
+export const runtime = "nodejs";
 
 export async function GET(request) {
   const url = new URL(request.url);
   const providerId = url.searchParams.get("provider");
-
-  let models;
-  if (providerId) {
-    models = getModelsByProvider(providerId);
-  } else {
-    models = getAllModels();
-  }
-
-  const openaiModels = models.map(m => ({
-    id: m.id,
+  const legacyModels = providerId ? getModelsByProvider(providerId) : getAllModels();
+  const openaiModels = legacyModels.map((model) => ({
+    id: model.id,
     object: "model",
     created: Math.floor(Date.now() / 1000),
-    owned_by: m.provider,
-    ...(m.contextLength ? { context_length: m.contextLength } : {}),
-    ...(m.description ? { description: m.description } : {}),
+    owned_by: model.provider,
+    ...(model.contextLength ? { context_length: model.contextLength } : {}),
+    ...(model.description ? { description: model.description } : {}),
   }));
 
-  return Response.json({
-    object: "list",
-    data: openaiModels,
-  });
+  let gatewayModels = [];
+  try { gatewayModels = listGatewayModels(); } catch { gatewayModels = []; }
+  if (providerId) gatewayModels = gatewayModels.filter((model) => model.owned_by === providerId);
+
+  return Response.json({ object: "list", data: [...openaiModels, ...gatewayModels] });
 }

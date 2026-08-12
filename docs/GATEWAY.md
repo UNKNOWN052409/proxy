@@ -127,3 +127,56 @@ npm run build
 ```
 
 The existing legacy account-import and tier-detection tests are separate from the new gateway modules. They are not required by the compliant provider-adapter path and must not be used to add cookie/session conversion or account-pooling behavior.
+
+## Provider management dashboard
+
+The **Dashboard → Gateway** view adds provider-level health checks, model refresh, enable/disable controls, and expiry notices. It never displays provider key values. A provider is considered unavailable to routing when it is disabled or when its configured `expiresAt` timestamp has passed.
+
+Use **Add provider** to merge JSON configuration by provider `id`. The import accepts provider metadata only; it rejects credential fields, cookies, `Authorization` headers, and `X-API-Key` headers. Set the referenced API-key environment variable on the server before testing the provider.
+
+```json
+[
+  {
+    "id": "custom-api",
+    "label": "My OpenAI-compatible API",
+    "type": "openai",
+    "baseUrl": "https://api.example.com/v1",
+    "apiKeyEnv": "GATEWAY_CUSTOM_API_KEY",
+    "models": ["chat-model"],
+    "defaultModel": "chat-model",
+    "supportsTools": false,
+    "supportsVision": false,
+    "enabled": true,
+    "expiresAt": "2030-01-01T00:00:00Z"
+  }
+]
+```
+
+> Imports are additive and merge matching provider IDs. They are not a credential-import mechanism. Use a deployment secret manager or the host environment for all provider-issued secrets.
+
+## Model catalog refresh and provider health
+
+The dashboard’s **Test & refresh** action runs a bounded documented model-list request for one provider. It stores a maximum of 1,000 returned model IDs, records response latency, and reports one of these non-sensitive health states: `healthy`, `authentication_error`, `rate_limited`, `unavailable`, `timeout`, or `missing_configuration`.
+
+| Scheduling approach | How it works | Operational characteristic |
+|---|---|---|
+| Server cron or platform scheduler | Run `npm run gateway:refresh-models` once per day. | Lowest overhead; no resident background process. |
+| Dashboard-triggered refresh | Use **Refresh all models** after changing access or permissions. | Immediate validation; intended for administrative use. |
+
+For a Linux host using cron, the daily command can be scheduled as follows. Ensure the execution environment includes the same provider-key variables as the gateway process.
+
+```cron
+15 3 * * * cd /path/to/proxy && /usr/bin/npm run gateway:refresh-models >> /var/log/proxy-model-refresh.log 2>&1
+```
+
+The provider model-list API contracts used by this feature are documented in [`provider-model-list-sources.md`](./provider-model-list-sources.md). OpenAI exposes `GET /models` with bearer authorization, while Anthropic exposes `GET /v1/models` with an API key and version header. [1] [2]
+
+## Analytics additions
+
+Gateway usage entries now preserve duration, result status, provider, model, and token counts. The main dashboard shows average latency, request success rate, and a provider reliability panel in addition to the existing request and token history. Error details are truncated before persistence.
+
+## References
+
+[1] OpenAI, [List models](https://developers.openai.com/api/reference/resources/models/methods/list/).
+
+[2] Anthropic, [List Models](https://platform.claude.com/docs/en/api/models/list).
