@@ -199,6 +199,24 @@ Usage analytics record input tokens, output tokens, total tokens, latency, succe
 
 The old Kiro account-import endpoint is disabled with HTTP 410. The legacy MITM server refuses startup unless both `ENABLE_LEGACY_MITM=true` and `LEGACY_MITM_ACK=I_UNDERSTAND_LOCAL_DEBUG_ONLY` are explicitly set for authorized local debugging. These legacy paths are not part of the compliant gateway.
 
+## Black-box model identity and behavior audit
+
+The **Dashboard → Gateway → Endpoint audit** action can test an explicitly configured API endpoint and selected model. The audit sends bounded, non-invasive probes and stores metadata only. It never stores the returned answer, hidden prompts, cookies, or authorization values.
+
+| Evidence | What it checks | Interpretation |
+|---|---|---|
+| Model-list evidence | Whether the advertised model appears in the endpoint’s documented model catalog. | A missing model is an inconsistency signal, not proof of a hidden replacement. |
+| Response identity | The `model` field in the response and safe routing headers such as `x-upstream-model`. | A response saying `deepseek-chat` while the request says `claude-opus` is a strong mismatch signal. |
+| Sentinel probe | Whether the endpoint returns the exact audit token. | Detects response transformation or unexpected instruction behavior; it does not fingerprint model weights. |
+| Self-report probe | Requests a small JSON family/version self-report. | Stored as unverified self-report because any model or proxy can fabricate it. |
+| Tool probe | Supplies a harmless audit-only function and checks for a standard tool call. | Shows observable tool-call compatibility; it does not prove model family. |
+| Leakage scan | Checks bounded output for system/developer prompt or credential-like material. | Reports indicators without extracting or persisting secrets. |
+| Latency split | Separates model-list/probe upstream timing from local audit overhead. | The `<1 ms` value is a target for local overhead, not a guarantee for network or model latency. |
+
+Run one to three probes from the dashboard. A report such as **inconsistent / reported deepseek-chat / advertised claude-opus** means the endpoint’s observable contract does not match the requested identity. A report such as **provisionally consistent** means only that the observed metadata and probes did not contradict the claim.
+
+> A remote black-box API cannot be forced to reveal its actual hidden backend model. The audit can detect contradictions, proxy fingerprints, response transformations, capability mismatches, and prompt leakage indicators, but it cannot mathematically prove that an endpoint is GPT-3.5, GPT-5, Opus, or any other model when the upstream deliberately hides or falsifies identity. Definitive attribution requires provider-side logs, signed attestations, or an authorized upstream control plane.
+
 
 ## Manual model-catalog import
 

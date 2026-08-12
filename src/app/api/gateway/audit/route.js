@@ -19,7 +19,8 @@ export async function POST(request) {
     const resolved = resolveProviderById(providerId);
     const model = String(body.model || resolved.provider.defaultModel || resolved.provider.models?.[0] || "").trim();
     if (!model) return NextResponse.json({ error: "Configure or refresh a model before auditing" }, { status: 400 });
-    const audit = await auditProviderEndpoint({ provider: resolved.provider, apiKey: resolved.apiKey, model });
+    const probeCount = Math.max(1, Math.min(3, Number(body.probeCount) || 1));
+    const audit = await auditProviderEndpoint({ provider: resolved.provider, apiKey: resolved.apiKey, model, probeCount });
     resolved.markCredentialResult(!audit.error, audit.probeStatus || audit.modelListStatus);
     const saved = saveProviderAudit(providerId, audit);
     return NextResponse.json(saved, { status: audit.error ? 502 : 200 });

@@ -11,7 +11,7 @@ import { __testables as runtime, getGatewayRuntimeState, importProviderModels, r
 import { __testables as health } from "../src/lib/gateway/health.js";
 import { __testables as port, listenWithPortFallback } from "../src/lib/runtime/port.js";
 import { __testables as credentials } from "../src/lib/gateway/credentials.js";
-import { auditProviderEndpoint, detectLeakage, classifyIdentity } from "../src/lib/gateway/audit.js";
+import { auditProviderEndpoint, detectLeakage, classifyIdentity, __testables as audit } from "../src/lib/gateway/audit.js";
 
 const tools = [{
   type: "function",
@@ -94,6 +94,19 @@ test("endpoint audit reports model mismatch as evidence, not proof", () => {
   assert.equal(result.confidence, 0.85);
   assert.ok(result.evidence.some((item) => item.type === "response_model_mismatch"));
   assert.match(result.limitation, /cannot prove/i);
+});
+
+test("behavioral audit summarizes observable probes without claiming hidden identity proof", () => {
+  const summary = audit.summarizeBehavior({ probes: [
+    { id: "sentinel", status: 200, data: { model: "deepseek-chat", choices: [{ message: { content: "GATEWAY_AUDIT_OK" } }] } },
+    { id: "self_report", status: 200, data: { choices: [{ message: { content: '{"model_family":"DeepSeek"}' } }] } },
+    { id: "tool_capability", status: 200, data: { choices: [{ message: { tool_calls: [{ function: { name: "audit_marker" } }] } }] } },
+  ] });
+  assert.equal(summary.sentinelMatched, true);
+  assert.equal(summary.selfReportObserved, true);
+  assert.equal(summary.toolCallObserved, true);
+  assert.equal(summary.toolCallName, "audit_marker");
+  assert.match(summary.limitation, /cannot prove/i);
 });
 
 test("authorized audit integration detects a mismatched reported model and stores no response", async () => {
