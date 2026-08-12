@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: compliant-ai-gateway
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: GATEWAY_HOST
+        value: 127.0.0.1
+      - key: GATEWAY_CREDENTIAL_MASTER_KEY
+        sync: false
+      - key: KP_AUTH_SECRET
+        sync: false
+      - key: NEXTAUTH_SECRET
+        sync: false
