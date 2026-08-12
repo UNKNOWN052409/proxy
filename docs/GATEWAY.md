@@ -199,7 +199,21 @@ Usage analytics record input tokens, output tokens, total tokens, latency, succe
 
 The old Kiro account-import endpoint is disabled with HTTP 410. The legacy MITM server refuses startup unless both `ENABLE_LEGACY_MITM=true` and `LEGACY_MITM_ACK=I_UNDERSTAND_LOCAL_DEBUG_ONLY` are explicitly set for authorized local debugging. These legacy paths are not part of the compliant gateway.
 
-## API forensics and black-box model identity audit
+## API Authenticity Verification and API Legitimacy Validation
+
+The gateway includes a separate legitimacy validator at `scripts/api-legitimacy.js`. It answers a narrower question than hidden-model attribution: **does this endpoint present a coherent, authenticated, standards-like API contract over a valid transport?**
+
+Run it with `LEGITIMACY_BASE_URL`, `LEGITIMACY_API_KEY`, and optionally `LEGITIMACY_MODEL`. It performs bounded checks for DNS resolution, certificate validity metadata, TLS protocol/cipher, unauthenticated and invalid-credential behavior, authenticated model-list behavior, provider-owned model claims, and selected intermediary headers. It never probes private admin routes, scans ports, bypasses authentication, stores response bodies, or extracts cookies/tokens.
+
+| Evidence level | Examples | What it supports |
+|---|---|---|
+| Strong | Valid hostname certificate, TLS handshake, `401/403` without credentials, authenticated standards-compatible response. | Transport and API-boundary legitimacy. |
+| Medium | Requested model appears in the authenticated catalog, response model is stable, official error shape is consistent. | Contract conformance and routing consistency. |
+| Informational | Nginx/Cloudflare/Vercel/Via headers, DNS address, certificate issuer. | Observable infrastructure only; not provider ownership proof. |
+| Missing | No authenticated response, timeout, CDN `522/502`, fabricated or missing model catalog. | Legitimacy remains partially supported or unverified. |
+
+The validator’s verdict is **not** a legal ownership certificate and does not prove that a provider is an official reseller. A real certificate proves control of a hostname, not control of the model behind it. Definitive provider legitimacy requires a trusted official domain relationship, provider documentation, signed attestation, or control-plane/billing evidence.
+
 
 The gateway now includes a bounded **API-forensics** layer for authorized endpoints. It combines the identity/behavior probes below with passive transport evidence. It does not scan ports, exploit a provider, bypass authentication, extract credentials, inspect cookies, or attempt to compromise a third-party service.
 
