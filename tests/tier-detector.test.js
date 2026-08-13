@@ -40,7 +40,7 @@ test.describe('Tier Detection - Account Info Strategy', () => {
 
     const tier = await detectTier({
       email: 'test@example.com',
-      password: 'pass123',
+      password: 'pass12345',
     });
 
     assert.strictEqual(tier, 'enterprise');
@@ -53,7 +53,7 @@ test.describe('Tier Detection - Account Info Strategy', () => {
 
     const tier = await detectTier({
       email: 'test@example.com',
-      password: 'pass123',
+      password: 'pass12345',
     });
 
     assert.strictEqual(tier, 'pro');
@@ -66,7 +66,7 @@ test.describe('Tier Detection - Account Info Strategy', () => {
 
     const tier = await detectTier({
       email: 'test@example.com',
-      password: 'pass123',
+      password: 'pass12345',
     });
 
     assert.strictEqual(tier, 'free');
@@ -79,7 +79,7 @@ test.describe('Tier Detection - Account Info Strategy', () => {
 
     const tier = await detectTier({
       email: 'test@example.com',
-      password: 'pass123',
+      password: 'pass12345',
     });
 
     assert.strictEqual(tier, 'pro');
@@ -99,7 +99,7 @@ test.describe('Tier Detection - Feature Access Strategy', () => {
 
     const tier = await detectTier({
       email: 'test@example.com',
-      password: 'pass123',
+      password: 'pass12345',
     });
 
     assert.strictEqual(tier, 'enterprise');
@@ -114,7 +114,7 @@ test.describe('Tier Detection - Feature Access Strategy', () => {
 
     const tier = await detectTier({
       email: 'test@example.com',
-      password: 'pass123',
+      password: 'pass12345',
     });
 
     assert.strictEqual(tier, 'pro');
@@ -129,7 +129,7 @@ test.describe('Tier Detection - Feature Access Strategy', () => {
 
     const tier = await detectTier({
       email: 'test@example.com',
-      password: 'pass123',
+      password: 'pass12345',
     });
 
     assert.strictEqual(tier, 'free');
@@ -143,7 +143,7 @@ test.describe('Tier Detection - Feature Access Strategy', () => {
 
     const tier = await detectTier({
       email: 'test@example.com',
-      password: 'pass123',
+      password: 'pass12345',
     });
 
     assert.strictEqual(tier, 'enterprise');
@@ -163,7 +163,7 @@ test.describe('Tier Detection - Caching', () => {
     // Add account to store
     const result = accountStore.add({
       email: 'cache-test@example.com',
-      password: 'pass123',
+      password: 'pass12345',
       tier: 'free',
       provider: 'manual',
     });
@@ -194,7 +194,7 @@ test.describe('Tier Detection - Caching', () => {
     // Add account with recent tier detection
     const result = accountStore.add({
       email: 'cached@example.com',
-      password: 'pass123',
+      password: 'pass12345',
       tier: 'pro',
       provider: 'manual',
     });
@@ -219,7 +219,7 @@ test.describe('Tier Detection - Caching', () => {
     // Add account with old tier detection
     const result = accountStore.add({
       email: 'expired@example.com',
-      password: 'pass123',
+      password: 'pass12345',
       tier: 'free',
       provider: 'manual',
     });
@@ -243,7 +243,7 @@ test.describe('Tier Detection - Caching', () => {
     // Add account with recent cache
     const result = accountStore.add({
       email: 'force@example.com',
-      password: 'pass123',
+      password: 'pass12345',
       tier: 'free',
       provider: 'manual',
     });
@@ -268,7 +268,7 @@ test.describe('Tier Detection - Error Handling', () => {
 
     const tier = await detectTier({
       email: 'error@example.com',
-      password: 'pass123',
+      password: 'pass12345',
     });
 
     assert.strictEqual(tier, 'free');
@@ -283,7 +283,7 @@ test.describe('Tier Detection - Error Handling', () => {
 
     const tier = await detectTier({
       email: 'timeout@example.com',
-      password: 'pass123',
+      password: 'pass12345',
     });
 
     assert.strictEqual(tier, 'free');
@@ -296,7 +296,7 @@ test.describe('Tier Detection - Error Handling', () => {
 
     const tier = await detectTier({
       email: 'invalid@example.com',
-      password: 'wrongpass',
+      password: 'wrongpass8',
     });
 
     assert.strictEqual(tier, 'free');
@@ -321,9 +321,9 @@ test.describe('Batch Tier Detection', () => {
     ]);
 
     const accounts = [
-      { email: 'user1@example.com', password: 'pass1' },
-      { email: 'user2@example.com', password: 'pass2' },
-      { email: 'user3@example.com', password: 'pass3' },
+      { email: 'user1@example.com', password: 'pass00001' },
+      { email: 'user2@example.com', password: 'pass00002' },
+      { email: 'user3@example.com', password: 'pass00003' },
     ];
 
     const result = await batchDetectTiers(accounts, { delayMs: 0 });
@@ -348,9 +348,9 @@ test.describe('Batch Tier Detection', () => {
     };
 
     const accounts = [
-      { email: 'user1@example.com', password: 'pass1' },
-      { email: 'user2@example.com', password: 'pass2' },
-      { email: 'user3@example.com', password: 'pass3' },
+      { email: 'user1@example.com', password: 'pass00001' },
+      { email: 'user2@example.com', password: 'pass00002' },
+      { email: 'user3@example.com', password: 'pass00003' },
     ];
 
     const result = await batchDetectTiers(accounts, { delayMs: 0 });

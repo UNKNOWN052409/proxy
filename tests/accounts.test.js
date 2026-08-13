@@ -11,21 +11,21 @@ import { validateAccount, normalizeAccount } from '../src/lib/accounts/schema.js
 // Test data fixtures
 const test9RouterData = {
   accounts: [
-    { email: 'user1@example.com', password: 'pass123', tier: 'pro' },
-    { email: 'user2@example.com', password: 'pass456', tier: 'free' },
+    { email: 'user1@example.com', password: 'pass12345', tier: 'pro' },
+    { email: 'user2@example.com', password: 'pass45678', tier: 'free' },
   ],
 };
 
 const testOMNIROUTERData = {
   connections: [
-    { username: 'user3@example.com', password: 'pass789', tier: 'enterprise' },
-    { username: 'user4@example.com', password: 'pass000' },
+    { username: 'user3@example.com', password: 'pass78901', tier: 'enterprise' },
+    { username: 'user4@example.com', password: 'pass00000' },
   ],
 };
 
 const testLLNData = [
-  { email: 'user5@example.com', password: 'pass111' },
-  { email: 'user6@example.com', password: 'pass222' },
+  { email: 'user5@example.com', password: 'pass11111' },
+  { email: 'user6@example.com', password: 'pass22222' },
 ];
 
 test.describe('Account Schema Validation', () => {
@@ -58,14 +58,14 @@ test.describe('Account Schema Validation', () => {
   test('should reject invalid email format', () => {
     const result = validateAccount({
       email: 'invalid-email',
-      password: 'pass123',
+      password: 'pass12345',
     });
     assert.strictEqual(result.valid, false);
   });
 
   test('should normalize username to email', () => {
     const result = normalizeAccount(
-      { username: 'user@example.com', password: 'pass' },
+      { username: 'user@example.com', password: 'password8' },
       'manual'
     );
     assert.strictEqual(result.email, 'user@example.com');
@@ -137,7 +137,7 @@ test.describe('Account Store Operations', () => {
   test('should add account to store', () => {
     const result = accountStore.add({
       email: 'store-test@example.com',
-      password: 'testpass',
+      password: 'testpass8',
       tier: 'pro',
       provider: 'manual',
     });
@@ -149,7 +149,7 @@ test.describe('Account Store Operations', () => {
   test('should get account by email', () => {
     accountStore.add({
       email: 'find-test@example.com',
-      password: 'pass',
+      password: 'password8',
       tier: 'free',
       provider: 'manual',
     });
@@ -162,7 +162,7 @@ test.describe('Account Store Operations', () => {
   test('should get account by id', () => {
     const result = accountStore.add({
       email: 'id-test@example.com',
-      password: 'pass',
+      password: 'password8',
       tier: 'free',
       provider: 'manual',
     });
@@ -173,8 +173,8 @@ test.describe('Account Store Operations', () => {
   });
 
   test('should list all accounts', () => {
-    accountStore.add({ email: 'a@example.com', password: 'p1', tier: 'free', provider: 'manual' });
-    accountStore.add({ email: 'b@example.com', password: 'p2', tier: 'pro', provider: 'manual' });
+    accountStore.add({ email: 'a@example.com', password: 'password1', tier: 'free', provider: 'manual' });
+    accountStore.add({ email: 'b@example.com', password: 'password2', tier: 'pro', provider: 'manual' });
 
     const accounts = accountStore.list();
     assert.strictEqual(accounts.length, 2);
@@ -183,7 +183,7 @@ test.describe('Account Store Operations', () => {
   test('should update account', () => {
     const result = accountStore.add({
       email: 'update-test@example.com',
-      password: 'pass',
+      password: 'password8',
       tier: 'free',
       provider: 'manual',
     });
@@ -198,7 +198,7 @@ test.describe('Account Store Operations', () => {
   test('should delete account', () => {
     const result = accountStore.add({
       email: 'delete-test@example.com',
-      password: 'pass',
+      password: 'password8',
       tier: 'free',
       provider: 'manual',
     });
@@ -221,9 +221,9 @@ test.describe('Account Store Operations', () => {
   });
 
   test('should count accounts by tier', () => {
-    accountStore.add({ email: 'free1@example.com', password: 'p', tier: 'free', provider: 'manual' });
-    accountStore.add({ email: 'free2@example.com', password: 'p', tier: 'free', provider: 'manual' });
-    accountStore.add({ email: 'pro1@example.com', password: 'p', tier: 'pro', provider: 'manual' });
+    accountStore.add({ email: 'free1@example.com', password: 'password9', tier: 'free', provider: 'manual' });
+    accountStore.add({ email: 'free2@example.com', password: 'password9', tier: 'free', provider: 'manual' });
+    accountStore.add({ email: 'pro1@example.com', password: 'password9', tier: 'pro', provider: 'manual' });
 
     const counts = accountStore.countByTier();
     assert.strictEqual(counts.total, 3);
@@ -232,8 +232,8 @@ test.describe('Account Store Operations', () => {
   });
 
   test('should prevent duplicate emails', () => {
-    accountStore.add({ email: 'dup@example.com', password: 'p1', tier: 'free', provider: 'manual' });
-    const result = accountStore.add({ email: 'dup@example.com', password: 'p2', tier: 'pro', provider: 'manual' });
+    accountStore.add({ email: 'dup@example.com', password: 'password1', tier: 'free', provider: 'manual' });
+    const result = accountStore.add({ email: 'dup@example.com', password: 'password2', tier: 'pro', provider: 'manual' });
 
     assert.strictEqual(result.success, false);
   });
@@ -260,7 +260,7 @@ test.describe('Account Export', () => {
     assert.ok(Array.isArray(exported.accounts));
     assert.ok(exported.accounts.length >= 2);
     assert.ok(exported.accounts[0].email);
-    assert.ok(exported.accounts[0].password);
+    assert.equal(exported.accounts[0].password, undefined);
   });
 
   test('should export to OMNIROUTER format', () => {
