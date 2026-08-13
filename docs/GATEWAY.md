@@ -397,3 +397,67 @@ This is a network-path property, not an identity guarantee: a provider can still
 ## Import status boundary
 
 Provider-issued API-key imports, official OAuth flows, model catalog imports, manual model entries, custom OpenAI/Anthropic endpoints, and safe OpenCode metadata imports are supported. Browser login state, cookies, passwords, local CLI session files, and private client tokens are not import formats. A provider must expose a documented or explicitly authorized API contract before it can be routed as a gateway provider.
+
+## Encrypted bulk credential import and verification
+
+The dashboard and authenticated provider-management API support importing up to 20 user-owned API keys or official OAuth access tokens per provider. The secret is encrypted with AES-256-GCM under `GATEWAY_CREDENTIAL_MASTER_KEY`; list and status endpoints return only IDs, labels, lifecycle metadata, cooldown state, and verification summaries. Passwords, browser cookies, session cookies, private client tokens, and account dumps are rejected.
+
+Use `POST /api/gateway/providers` with the following shape from an authenticated dashboard session:
+
+```json
+{
+  "action": "import_credentials",
+  "providerId": "primary",
+  "credentials": [
+    {"label": "primary", "apiKey": "provider-issued-key"},
+    {"label": "backup", "token": "official-oauth-access-token", "expiresAt": "2030-01-01T00:00:00Z"}
+  ],
+  "verify": true,
+  "probeCount": 2,
+  "contextSizes": [8000]
+}
+```
+
+When `verify` is enabled, each imported credential is checked sequentially against the provider’s documented model-list and completion boundary. The result records model-list status, probe status, TTFT, canary/context failures, leakage indicators, identity consistency, authenticity score, and a bounded error summary. A quarantined result is evidence of anomalous behavior and is not proof of hidden model identity. Existing credentials can be rechecked with `verify_credential` or `verify_credentials`. Verification never returns the credential value.
+
+## OpenCode no-auth boundary
+
+OpenCode-style no-auth upstreams are supported only for explicitly trusted local or private-network endpoints. The normalized OpenCode importer accepts metadata and models but rejects secret-bearing fields. For no-auth operation, enable the dedicated local OpenCode profile and keep the public gateway’s own Bearer/API-key authentication enabled. Public HTTPS endpoints must not be treated as no-auth merely because an OpenCode configuration omits a key. HTTP is permitted only for loopback or an explicitly controlled local test path.
+
+This means a trusted service at `http://127.0.0.1:<port>` can be called without an upstream secret, while a remote client still needs a gateway key. The gateway does not inspect browser sessions, capture DevTools network traffic, intercept third-party login flows, or transform cookies into API credentials.
+
+## VPS egress verification
+
+All upstream `fetch` calls are executed by the gateway process. If the gateway is hosted on a VPS and the provider configuration points to an external HTTPS API, the provider observes the VPS egress address, not the requesting phone or laptop address. This statement applies to ordinary direct routing; a reverse proxy, outbound proxy, transparent proxy, IPv6 path, or provider-specific network layer can change the observed address and must be tested separately.
+
+Verify the deployment with a VPS-controlled diagnostic endpoint or provider request logger. Send one request from a phone and one from the VPS itself, compare the upstream-observed source address, and confirm that forwarded client-IP headers are not added. The custom endpoint boundary explicitly strips or rejects client-IP forwarding signals. Do not use third-party interception or packet capture to perform this check; use an endpoint you control or an authorized provider diagnostic.
+
+A minimal operational checklist is:
+
+| Check | Expected result |
+|---|---|
+| Client sends gateway request | Gateway access log contains the client request, but no client IP is forwarded upstream by default. |
+| Gateway sends provider request | Provider sees the VPS’s public egress address. |
+| IPv4/IPv6 policy | The VPS firewall and DNS policy intentionally select the expected address family. |
+| Reverse/outbound proxy | Any configured proxy’s egress address is documented and tested separately. |
+| Secret handling | Provider keys remain server-side and are absent from logs, dashboard status, and responses. |
+
+The gateway cannot guarantee a particular public address without deployment-level control of DNS, routing, firewall, and proxy settings; it can guarantee that it does not intentionally forward the client identity through custom `X-Forwarded-For`, `Forwarded`, or similar client-IP headers.
+
+## Verification limitations
+
+Black-box canaries, TTFT profiling, context probes, model-list consistency, and transport markers are evidence-based controls. They can detect contradictions, prompt leakage, implausibly fast premium-model claims, and unhealthy credentials, but they cannot mathematically prove a hidden model’s weights or reveal a provider’s private backend topology.
+
+[3] Node.js, [Fetch API](https://nodejs.org/api/globals.html#fetch).
+
+[4] OpenAI, [API authentication](https://platform.openai.com/docs/api-reference/authentication).
+
+[5] OpenCode, [Configuration documentation](https://opencode.ai/docs/config/).
+
+### References added for this section
+
+[3] Node.js, [Fetch API](https://nodejs.org/api/globals.html#fetch).
+
+[4] OpenAI, [API authentication](https://platform.openai.com/docs/api-reference/authentication).
+
+[5] OpenCode, [Configuration documentation](https://opencode.ai/docs/config/).

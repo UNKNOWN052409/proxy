@@ -97,7 +97,39 @@ export function importEncryptedCredentials(providerIdValue, entries) {
 
 export function listCredentialMetadata(providerIdValue) {
   const providerId = normalizeProviderId(providerIdValue);
-  return (readStore().credentials[providerId] || []).map(({ id, providerId: idProvider, label, createdAt, expiresAt, failureCount, cooldownUntil, lastUsedAt }) => ({ id, providerId: idProvider, label, createdAt, expiresAt, failureCount, cooldownUntil, lastUsedAt }));
+  return (readStore().credentials[providerId] || []).map(({ id, providerId: idProvider, label, createdAt, expiresAt, failureCount, cooldownUntil, lastUsedAt, lastSuccessAt, lastFailureAt, lastStatusCode, verification }) => ({ id, providerId: idProvider, label, createdAt, expiresAt, failureCount, cooldownUntil, lastUsedAt, lastSuccessAt: lastSuccessAt || null, lastFailureAt: lastFailureAt || null, lastStatusCode: lastStatusCode || null, verification: verification || null }));
+}
+
+export function getCredentialForVerification(providerIdValue, credentialId) {
+  const providerId = normalizeProviderId(providerIdValue);
+  const id = String(credentialId || '').trim();
+  if (!id) throw new Error('credentialId is required');
+  const entry = (readStore().credentials[providerId] || []).find((candidate) => candidate.id === id);
+  if (!entry) return null;
+  if (entry.expiresAt && Date.parse(entry.expiresAt) <= Date.now()) return { credentialId: entry.id, apiKey: decrypt(entry.encrypted), refreshToken: entry.refreshEncrypted ? decrypt(entry.refreshEncrypted) : null, expiresAt: entry.expiresAt, expired: true };
+  return { credentialId: entry.id, apiKey: decrypt(entry.encrypted), refreshToken: entry.refreshEncrypted ? decrypt(entry.refreshEncrypted) : null, expiresAt: entry.expiresAt || null, expired: false };
+}
+
+export function recordCredentialVerification(providerIdValue, credentialId, verification) {
+  const providerId = normalizeProviderId(providerIdValue);
+  const store = readStore();
+  const entries = store.credentials[providerId] || [];
+  const safe = verification && typeof verification === 'object' ? {
+    checkedAt: String(verification.checkedAt || new Date().toISOString()),
+    status: String(verification.status || 'unknown').slice(0, 40),
+    authenticityScore: Number.isFinite(Number(verification.authenticityScore)) ? Number(verification.authenticityScore) : null,
+    ttftMs: Number.isFinite(Number(verification.ttftMs)) ? Number(verification.ttftMs) : null,
+    model: verification.model ? String(verification.model).slice(0, 160) : null,
+    error: verification.error ? String(verification.error).slice(0, 240) : null,
+  } : null;
+  let found = false;
+  store.credentials[providerId] = entries.map((entry) => {
+    if (entry.id !== credentialId) return entry;
+    found = true;
+    return { ...entry, verification: safe };
+  });
+  if (found) writeStore(store);
+  return found;
 }
 
 export function selectCredential(providerIdValue) {

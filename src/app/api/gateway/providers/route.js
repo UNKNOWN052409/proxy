@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getGatewayProviders, getGatewayStatus } from "@/lib/gateway/config";
 import { getGatewayRuntimeState, importProviderModels, mergeProviderConfiguration, restoreGatewayRuntimeState, setProviderEnabled } from "@/lib/gateway/runtime-store";
-import { importEncryptedCredentials, listCredentialMetadata } from "@/lib/gateway/credentials";
+import { importEncryptedCredentials, listCredentialMetadata, getCredentialForVerification, recordCredentialVerification, markCredentialResult } from "@/lib/gateway/credentials";
+import { auditProviderEndpoint } from "@/lib/gateway/audit";
 import { detectCustomEndpoint, testPromptTemplate } from "@/lib/gateway/custom-endpoint";
 import { normalizeOpenCodeImport, describeOpenCodeImport } from "@/lib/gateway/opencode-import";
 
@@ -115,9 +116,25 @@ export async function POST(request) {
       return NextResponse.json({ ok: true, setting, status: getGatewayStatus() });
     }
     if (action === "import_credentials") {
-      const providerId = String(body.providerId || "");
+      const providerId = String(body.providerId || "").trim().toLowerCase();
+      const provider = getGatewayProviders().find((candidate) => candidate.id === providerId);
+      if (!provider) return error(`Unknown or unconfigured provider: ${providerId}`);
       const imported = importEncryptedCredentials(providerId, body.credentials);
-      return NextResponse.json({ ok: true, imported, credentials: listCredentialMetadata(providerId), status: getGatewayStatus() }, { status: 201 });
+      const verification = body.verify === true
+        ? await verifyCredentialSet(provider, imported.map((entry) => entry.id), body)
+        : [];
+      return NextResponse.json({ ok: true, imported, verification, credentials: listCredentialMetadata(providerId), status: getGatewayStatus() }, { status: 201 });
+    }
+    if (action === "verify_credential" || action === "verify_credentials") {
+      const providerId = String(body.providerId || "").trim().toLowerCase();
+      const provider = getGatewayProviders().find((candidate) => candidate.id === providerId);
+      if (!provider) return error(`Unknown or unconfigured provider: ${providerId}`);
+      const ids = action === "verify_credential"
+        ? [String(body.credentialId || "").trim()]
+        : (Array.isArray(body.credentialIds) && body.credentialIds.length ? body.credentialIds.map((id) => String(id).trim()) : listCredentialMetadata(providerId).map((entry) => entry.id));
+      if (ids.some((id) => !id)) return error("credentialId or credentialIds is required");
+      const verification = await verifyCredentialSet(provider, ids, body);
+      return NextResponse.json({ ok: verification.every((item) => item.status === "verified"), verification, credentials: listCredentialMetadata(providerId) });
     }
     if (action === "list_credentials") {
       const providerId = String(body.providerId || "");
@@ -127,4 +144,46 @@ export async function POST(request) {
   } catch (cause) {
     return error(cause instanceof Error ? cause.message : "Gateway provider update failed");
   }
+}
+
+async function verifyCredentialSet(provider, credentialIds, options = {}) {
+  const results = [];
+  const model = String(options.model || provider.defaultModel || provider.models?.[0]?.id || provider.models?.[0] || "").trim() || undefined;
+  const probeCount = Math.max(1, Math.min(5, Number(options.probeCount || 2)));
+  const contextSizes = Array.isArray(options.contextSizes) ? options.contextSizes.slice(0, 3) : [];
+  for (const credentialId of credentialIds) {
+    const started = Date.now();
+    let summary;
+    try {
+      const credential = getCredentialForVerification(provider.id, credentialId);
+      if (!credential) throw new Error("Credential not found");
+      if (credential.expired) throw new Error("Credential is expired");
+      const audit = await auditProviderEndpoint({ provider, apiKey: credential.apiKey, model, probeCount, contextSizes });
+      const status = audit.authenticity?.status === "quarantined" ? "quarantined" : audit.error ? "failed" : "verified";
+      if (audit.modelResponse?.status) markCredentialResult(provider.id, credentialId, audit.modelResponse.ok, audit.modelResponse.status);
+      summary = {
+        credentialId,
+        status,
+        checkedAt: audit.checkedAt,
+        model: audit.advertisedModel,
+        authenticityScore: audit.authenticity?.score ?? null,
+        authenticityStatus: audit.authenticity?.status || null,
+        ttftMs: audit.authenticity?.ttftMs ?? null,
+        modelListStatus: audit.modelListStatus,
+        probeStatus: audit.probeStatus,
+        canaryFailures: audit.authenticity?.failedCanaries ?? null,
+        contextFailures: audit.authenticity?.failedContexts ?? null,
+        leakage: audit.leakage?.findings || [],
+        identityVerdict: audit.identity?.verdict || null,
+        durationMs: Date.now() - started,
+        error: audit.error || null,
+      };
+    } catch (cause) {
+      summary = { credentialId, status: "failed", checkedAt: new Date().toISOString(), model: model || null, authenticityScore: 0, authenticityStatus: "failed", ttftMs: null, durationMs: Date.now() - started, error: cause instanceof Error ? cause.message : "Verification failed" };
+      markCredentialResult(provider.id, credentialId, false, null);
+    }
+    recordCredentialVerification(provider.id, credentialId, summary);
+    results.push(summary);
+  }
+  return results;
 }
