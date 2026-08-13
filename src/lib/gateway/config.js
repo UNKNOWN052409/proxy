@@ -157,16 +157,18 @@ function environmentProviders() {
       supportsImageGeneration: process.env.GATEWAY_OPENAI_SUPPORTS_IMAGE_GENERATION === "true",
     });
   }
-  if (process.env.GEMINI_API_KEY) {
+  if (process.env.GEMINI_API_KEY || process.env.GEMINI_OAUTH_CLIENT_ID) {
     const profile = getDedicatedProviderProfile("gemini");
     providers.push({
       ...profile,
       id: "gemini",
       baseUrl: process.env.GATEWAY_GEMINI_BASE_URL || profile.baseUrl,
-      apiKeyEnv: "GEMINI_API_KEY",
+      apiKeyEnv: process.env.GEMINI_API_KEY ? "GEMINI_API_KEY" : null,
+      oauthClientIdEnv: process.env.GEMINI_OAUTH_CLIENT_ID ? "GEMINI_OAUTH_CLIENT_ID" : null,
+      oauthClientSecretEnv: process.env.GEMINI_OAUTH_CLIENT_SECRET ? "GEMINI_OAUTH_CLIENT_SECRET" : null,
       models: splitModels(process.env.GATEWAY_GEMINI_MODELS).length ? splitModels(process.env.GATEWAY_GEMINI_MODELS) : profile.models,
       defaultModel: process.env.GATEWAY_GEMINI_DEFAULT_MODEL || profile.models[0],
-      authMode: process.env.GATEWAY_GEMINI_AUTH_MODE || "api-key",
+      authMode: process.env.GATEWAY_GEMINI_AUTH_MODE || (process.env.GEMINI_API_KEY ? "api-key" : "oauth2-bearer"),
     });
   }
   const kiroTokenEnv = process.env.KIRO_AUTH_TOKEN ? "KIRO_AUTH_TOKEN" : (process.env.KIRO_API_KEY ? "KIRO_API_KEY" : null);
@@ -237,6 +239,8 @@ function environmentProviders() {
     throw new Error("GATEWAY_QWEN_API_KEY_ENV must reference a dedicated gateway secret variable");
   }
   for (const [id, secretEnv, baseUrlEnv, modelsEnv, defaultBaseUrl] of profileEnvProviders) {
+    // Hugging Face OAuth and static-token configuration share a single profile below.
+    if (id === "huggingface" && process.env.HUGGINGFACE_OAUTH_CLIENT_ID) continue;
     if (!process.env[secretEnv]) continue;
     const profile = getDedicatedProviderProfile(id);
     providers.push({
@@ -248,6 +252,20 @@ function environmentProviders() {
       defaultModel: process.env[`GATEWAY_${id.toUpperCase()}_DEFAULT_MODEL`] || profile.models[0],
       ...(id === "qwen" ? { qwenPlan, qwenRegion } : {}),
       ...(id === "mimo" ? { mimoPlan } : {}),
+    });
+  }
+  if (process.env.HUGGINGFACE_OAUTH_CLIENT_ID) {
+    const profile = getDedicatedProviderProfile("huggingface");
+    providers.push({
+      ...profile,
+      id: "huggingface",
+      apiKeyEnv: process.env.HUGGINGFACE_API_KEY ? "HUGGINGFACE_API_KEY" : null,
+      oauthClientIdEnv: "HUGGINGFACE_OAUTH_CLIENT_ID",
+      oauthClientSecretEnv: process.env.HUGGINGFACE_OAUTH_CLIENT_SECRET ? "HUGGINGFACE_OAUTH_CLIENT_SECRET" : null,
+      baseUrl: process.env.GATEWAY_HUGGINGFACE_BASE_URL || profile.baseUrl,
+      models: splitModels(process.env.GATEWAY_HUGGINGFACE_MODELS),
+      defaultModel: process.env.GATEWAY_HUGGINGFACE_DEFAULT_MODEL || profile.models[0],
+      authMode: process.env.HUGGINGFACE_API_KEY ? "api-key" : "oauth2-bearer",
     });
   }
   if (process.env.MANUS_OAUTH_CLIENT_ID) {
@@ -321,7 +339,7 @@ export function getGatewayStatus() {
     supportedProviders: listDedicatedProviderProfiles().map(({ apiKeyEnv, ...profile }) => {
       const configured = profile.localOnly
         ? true
-        : Boolean(apiKeyEnv && process.env[apiKeyEnv]);
+        : Boolean((apiKeyEnv && process.env[apiKeyEnv]) || (profile.oauthClientIdEnv && process.env[profile.oauthClientIdEnv]));
       const status = configured ? "available" : "unavailable";
       return {
         ...profile,
@@ -329,7 +347,7 @@ export function getGatewayStatus() {
         status,
         availabilityReason: configured
           ? (profile.localOnly ? "Local endpoint can be tested on this host" : "Credential or runtime configuration detected")
-          : (profile.availabilityNote || (profile.oauthOnly ? "OAuth application configuration is required" : profile.requiresBaseUrl ? "Explicit base URL and credential are required" : `${apiKeyEnv || "Provider credential"} is not configured`)),
+          : (profile.availabilityNote || ((profile.oauthClientIdEnv || profile.oauthOnly) ? "OAuth application configuration is required" : profile.requiresBaseUrl ? "Explicit base URL and credential are required" : `${apiKeyEnv || "Provider credential"} is not configured`)),
         catalogOnly: profile.catalogOnly === true,
         freeTierCatalog: profile.freeTierCatalog === true,
         setupRequired: !configured,

@@ -8,7 +8,7 @@ test("Gemini dedicated profile exposes native image capability and documented au
   assert.equal(profile.type, "gemini");
   assert.equal(profile.supportsImageGeneration, true);
   assert.ok(profile.models.includes("gemini-3.1-flash-image"));
-  assert.deepEqual(profile.authModes, ["api-key", "oauth2-bearer"]);
+  assert.deepEqual(profile.authModes, ["api-key", "oauth2-authorization-code", "service-account"]);
 });
 
 test("provider normalization preserves Gemini image and OAuth capability flags", () => {
@@ -24,4 +24,13 @@ test("provider normalization preserves Gemini image and OAuth capability flags",
   assert.equal(normalized.supportsImageGeneration, true);
   assert.equal(normalized.authMode, "oauth");
   assert.equal(normalized.models[0], "gemini-3.1-flash-image");
+});
+
+test("Hugging Face profile exposes official OAuth inference metadata", () => {
+  const profile = getDedicatedProviderProfile("huggingface");
+  assert.equal(profile.baseUrl, "https://router.huggingface.co/v1");
+  assert.ok(profile.authModes.includes("oauth2-authorization-code"));
+  assert.equal(profile.oauthAuthUrl, "https://huggingface.co/oauth/authorize");
+  assert.equal(profile.oauthTokenUrl, "https://huggingface.co/oauth/token");
+  assert.deepEqual(profile.oauthScopes, ["inference-api", "read-endpoints"]);
 });
