@@ -98,6 +98,7 @@ function normalizeProvider(provider) {
     defaultModel: String(provider.defaultModel || models[0] || "").trim(),
     supportsTools: provider.supportsTools === true || profile?.supportsTools === true,
     supportsVision: provider.supportsVision === true || profile?.supportsVision === true,
+    supportsImageGeneration: provider.supportsImageGeneration === true || profile?.supportsImageGeneration === true,
     visionProvider: provider.visionProvider ? String(provider.visionProvider).trim().toLowerCase() : null,
     headers: normalizeHeaders(provider.headers),
     apiKeyHeader: String(provider.apiKeyHeader || profile?.apiKeyHeader || "authorization").trim().toLowerCase(),
@@ -141,6 +142,7 @@ function environmentProviders() {
       defaultModel: process.env.GATEWAY_OPENAI_DEFAULT_MODEL,
       supportsTools: process.env.GATEWAY_OPENAI_SUPPORTS_TOOLS !== "false",
       supportsVision: process.env.GATEWAY_OPENAI_SUPPORTS_VISION === "true",
+      supportsImageGeneration: process.env.GATEWAY_OPENAI_SUPPORTS_IMAGE_GENERATION === "true",
     });
   }
   if (process.env.GATEWAY_ANTHROPIC_API_KEY) {

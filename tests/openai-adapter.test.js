@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import http from "node:http";
+import { executeOpenAiImage } from "../src/lib/gateway/providers/openai.js";
 import {
   gatewayError,
   openAiErrorResponse,
@@ -41,6 +43,34 @@ test("creates completion and SSE responses with tool calls and usage", async () 
   assert.match(body, /chat.completion.chunk/);
   assert.match(body, /call-1/);
   assert.match(body, /\[DONE\]/);
+});
+
+test("image generation forwards bounded fields and normalizes the OpenAI response", async () => {
+  const requests = [];
+  const server = http.createServer(async (request, response) => {
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    requests.push({ url: request.url, authorization: request.headers.authorization, body: JSON.parse(raw) });
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ created: 123, data: [{ url: "https://cdn.example.test/image.png", revised_prompt: "safe prompt" }] }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  try {
+    const result = await executeOpenAiImage({
+      provider: { id: "openai", baseUrl: `http://127.0.0.1:${port}/v1`, apiKeyHeader: "authorization", headers: {} },
+      apiKey: "test-key",
+      model: "gpt-image-1",
+      body: { prompt: "a red kite", size: "1024x1024", quality: "high", ignored: "drop" },
+    });
+    assert.deepEqual(result, { created: 123, data: [{ url: "https://cdn.example.test/image.png", revised_prompt: "safe prompt" }] });
+    assert.equal(requests[0].url, "/v1/images/generations");
+    assert.equal(requests[0].authorization, "Bearer test-key");
+    assert.deepEqual(requests[0].body, { model: "gpt-image-1", prompt: "a red kite", size: "1024x1024", quality: "high" });
+    await assert.rejects(() => executeOpenAiImage({ provider: { id: "openai", baseUrl: `http://127.0.0.1:${port}/v1` }, body: { prompt: "" }, model: "gpt-image-1" }), /Image prompt is required/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test("formats CORS and OpenAI error responses", async () => {

@@ -140,4 +140,26 @@ export async function describeImageWithOpenAi({ provider, apiKey, model, image }
   return description.trim();
 }
 
+export async function executeOpenAiImage({ provider, apiKey, body, model }) {
+  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  if (!prompt) throw gatewayError("Image prompt is required", 400, "invalid_request_error");
+  if (prompt.length > 10000) throw gatewayError("Image prompt is too long", 400, "invalid_request_error");
+  const payload = { model, prompt };
+  for (const key of ["n", "size", "quality", "style", "response_format", "user"]) {
+    if (body[key] !== undefined) payload[key] = body[key];
+  }
+  const authHeader = apiKey ? (provider.apiKeyHeader === "api-key" ? { "api-key": apiKey } : { Authorization: `Bearer ${apiKey}` }) : {};
+  const data = await postJson(endpoint(provider.baseUrl, "/images/generations"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeader, ...safeConfiguredHeaders(provider.headers) },
+    body: JSON.stringify(payload),
+  });
+  if (!Array.isArray(data.data)) throw gatewayError("Image provider returned an invalid image response", 502, "upstream_error");
+  return { created: Number(data.created || Math.floor(Date.now() / 1000)), data: data.data.map((item) => ({
+    ...(typeof item?.url === "string" ? { url: item.url } : {}),
+    ...(typeof item?.b64_json === "string" ? { b64_json: item.b64_json } : {}),
+    ...(typeof item?.revised_prompt === "string" ? { revised_prompt: item.revised_prompt } : {}),
+  })).filter((item) => item.url || item.b64_json) };
+}
+
 export const __testables = { buildPayload, safeConfiguredHeaders };
