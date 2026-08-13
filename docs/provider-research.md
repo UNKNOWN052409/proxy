@@ -15,3 +15,30 @@ Findings:
 - Ollama officially documents an OpenAI-compatible local endpoint at http://localhost:11434/v1; the API key is required by some clients but unused by Ollama.
 - LM Studio officially documents OpenAI-compatible local endpoints at http://localhost:1234/v1 and supports /v1/models, /v1/responses, /v1/chat/completions, /v1/embeddings, and /v1/completions.
 - No cookie scraping, browser-session extraction, undocumented endpoint capture, MITM, or automatic remote no-auth traffic was added.
+
+## 9Router MiMo Free follow-up (2026-08-13)
+
+Public repository: https://github.com/decolua/9router
+
+The repository release notes state `Add MiMo Free no-auth provider (#1789)` in v0.4.80. The public source tests and baseline registry show that this provider uses the upstream URL `https://api.xiaomimimo.com/api/free-ai/openai/chat`, exposes `mimo-auto` through the `mimo-free` provider, and sends `X-Mimo-Source: mimocode-cli-free` plus session affinity. The executor calls a bootstrap endpoint to obtain a short-lived JWT, sends a machine fingerprint as the bootstrap client, then sends `Authorization: Bearer <JWT>` to the chat endpoint and re-bootstraps/retries on HTTP 403. The source tests also cover system-marker injection. This is not a credentialless direct API; it is a provider-specific bootstrap-token flow with fingerprinting, special headers, system-marker behavior, and retry logic. It should not be copied as generic no-auth support without explicit authorization from Xiaomi/MiMo and a compliant published contract.
+
+Official MiMo API documentation: https://mimo.mi.com/docs/quick-start/first-api-call
+
+The official docs state that users must log in with a Xiaomi account and obtain either a pay-as-you-go API key or a Token Plan API key; examples use `https://api.xiaomimimo.com/v1` or a token-plan base URL and an `sk-...` or `tp-...` key. Therefore the gateway keeps official MiMo API-key support and does not label the 9Router bootstrap relay as generic no-auth.
+
+## OmniRoute free-provider and Qwen follow-up (2026-08-13)
+
+Sources reviewed:
+
+- https://github.com/diegosouzapw/OmniRoute
+- https://github.com/diegosouzapw/OmniRoute/discussions/2186
+- https://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.50/docs/reference/FREE_TIERS.md
+- https://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.50/docs/reference/PROVIDER_REFERENCE.md
+- https://qwenlm.github.io/qwen-code-docs/en/users/configuration/auth/
+- https://github.com/QwenLM/qwen-code/issues/3203
+
+OmniRoute publishes a broad catalog but its “no-auth” category is heterogeneous. Publicly listed examples include OpenCode Free, Felo, Pollinations, AI Horde, DuckDuckGo AI Chat, and other provider-specific or local/CLI bridges. Its public discussion says Pollinations currently works with a placeholder field while Puter moved to a web-session-token requirement; the latter is not a compliant no-auth integration for this gateway. The provider reference also includes entries whose implementation uses local official CLIs, anonymous documented keys, or provider-specific executors rather than a universal unauthenticated OpenAI endpoint.
+
+The gateway should therefore classify candidates into: local no-auth (Ollama, LM Studio, local OpenCode), documented public endpoint (only after endpoint contract and terms are verified), provider API key/free tier, OAuth, and catalog-only candidate. It must not copy web-cookie, localStorage-token, browser-session, fingerprint bootstrap, or hidden endpoint flows merely because OmniRoute exposes them.
+
+Qwen’s current official authentication documentation says the prior Qwen OAuth free tier was discontinued on 2026-04-15. Current supported paths are Alibaba ModelStudio Coding Plan, Token Plan, Standard API Key, third-party API keys, or custom OpenAI/Anthropic/Gemini-compatible endpoints. The cited Qwen issue records a proposed transition from 1,000 requests/day to 100 requests/day before closing the OAuth free entry point; this historical figure must not be treated as a current per-account quota. Current Qwen limits depend on the selected Alibaba plan/model/region and should be obtained from account/API response headers or the active plan documentation, not guessed globally.
