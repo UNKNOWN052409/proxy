@@ -28,7 +28,7 @@ export default function ImportPage() {
         <div>
           <h1 className="text-2xl font-bold text-text-main">Import Accounts</h1>
           <p className="text-text-muted text-sm mt-1">
-            Import credentials from 9Router, OMNIROUTER, or LLN proxy formats
+            Import user-owned API keys, official tokens, and approved OAuth account metadata from secure files
           </p>
         </div>
         <Button
@@ -47,7 +47,7 @@ export default function ImportPage() {
           <div>
             <h2 className="text-lg font-semibold text-text-main mb-3">How to Import</h2>
             <p className="text-sm text-text-muted mb-4">
-              Kiro Proxy supports multiple account import formats. Follow these steps to import your accounts:
+              The gateway imports authorized credentials into encrypted storage. It accepts structured JSON, CSV, and plain token-list files without exposing secret values in the dashboard.
             </p>
           </div>
 
@@ -60,8 +60,7 @@ export default function ImportPage() {
               <div>
                 <h3 className="text-sm font-medium text-text-main mb-1">Export from your proxy</h3>
                 <p className="text-xs text-text-muted">
-                  Export your accounts as JSON from 9Router, OMNIROUTER, or LLN proxy.
-                  Make sure the file contains valid JSON data.
+                  Prepare a JSON, CSV, or text file containing only API keys, official bearer tokens, or documented OAuth account records that you own. Do not export browser data.
                 </p>
               </div>
             </div>
@@ -73,8 +72,7 @@ export default function ImportPage() {
               <div>
                 <h3 className="text-sm font-medium text-text-main mb-1">Upload your file</h3>
                 <p className="text-xs text-text-muted">
-                  Click the import button below and select your JSON file.
-                  The format will be auto-detected based on file structure.
+                  Click the import button below and select a `.json`, `.csv`, or `.txt` file. The gateway validates its schema before any encrypted write occurs.
                 </p>
               </div>
             </div>
@@ -86,8 +84,7 @@ export default function ImportPage() {
               <div>
                 <h3 className="text-sm font-medium text-text-main mb-1">Review and confirm</h3>
                 <p className="text-xs text-text-muted">
-                  Preview your accounts before importing. Duplicates will be skipped automatically.
-                  Your existing accounts will never be removed.
+                  Review the server-side safe preview before import. Rejected entries never reach storage, and the import only adds authorized credentials or account records.
                 </p>
               </div>
             </div>
@@ -100,30 +97,30 @@ export default function ImportPage() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="material-symbols-outlined text-brand-400 text-[16px]">check_circle</span>
-                  <p className="text-xs font-medium text-text-main">9Router</p>
+                  <p className="text-xs font-medium text-text-main">JSON bundle</p>
                 </div>
                 <p className="text-[10px] text-text-muted pl-6">
-                  {"{ accounts: [...] }"}
+                  {"{ provider, credentials: [...] }"}
                 </p>
               </div>
 
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="material-symbols-outlined text-brand-400 text-[16px]">check_circle</span>
-                  <p className="text-xs font-medium text-text-main">OMNIROUTER</p>
+                  <p className="text-xs font-medium text-text-main">CSV rows</p>
                 </div>
                 <p className="text-[10px] text-text-muted pl-6">
-                  {"{ connections: [...] }"}
+                  {"provider,apiKey/token,label"}
                 </p>
               </div>
 
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="material-symbols-outlined text-brand-400 text-[16px]">check_circle</span>
-                  <p className="text-xs font-medium text-text-main">LLN Proxy</p>
+                  <p className="text-xs font-medium text-text-main">Token list</p>
                 </div>
                 <p className="text-[10px] text-text-muted pl-6">
-                  {"[{ email, password }]"}
+                  {"one token per line + provider ID"}
                 </p>
               </div>
             </div>
@@ -153,11 +150,11 @@ export default function ImportPage() {
             <div className="space-y-2">
               <p className="text-sm font-medium text-text-main">Important Notes</p>
               <ul className="text-xs text-text-muted space-y-1 list-disc pl-4">
-                <li>Imports are additive - existing accounts are never removed or overwritten</li>
-                <li>Duplicate accounts (same email) will be automatically skipped</li>
-                <li>Password hashes are imported as-is and cannot be reversed to plaintext</li>
-                <li>Account tiers will be preserved from the import file</li>
-                <li>All imported accounts are marked as active by default</li>
+                <li>Imports are additive; existing credential pools and account records are never deleted by file import.</li>
+                <li>API keys, bearer tokens, access tokens, and refresh tokens are encrypted before storage.</li>
+                <li>Passwords, cookies, browser sessions, private headers, and authorization-header dumps are rejected.</li>
+                <li>Use a provider ID for plain `.txt` token lists; JSON/CSV rows may declare their own provider.</li>
+                <li>Use only credentials and account records you are authorized to manage.</li>
               </ul>
             </div>
           </div>
