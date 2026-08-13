@@ -500,3 +500,12 @@ The dashboard distinguishes a **long-running Quick Tunnel relay** from a **persi
 The Settings page also exposes safe connection profiles for Pi Mono, Prime, Claude-compatible, Codex-compatible, OpenCode local, Gemini-compatible, Qwen-compatible, Kimi-compatible, Grok-compatible, JCode-compatible, and generic custom OpenAI-compatible clients. These are protocol presets, not claims of official provider integration. Profile generation emits a redacted base URL, model, authorization-header template, tool/vision capability flags, and an environment-variable name. It never imports cookies, browser sessions, passwords, or undocumented OAuth material. OpenCode is restricted to loopback/private URLs unless the operator explicitly uses a documented trusted configuration.
 
 The connection endpoint is `GET/POST /api/config/connect`. It generates local proxy settings so authorized CLI tools can point to the gateway's OpenAI-compatible `/v1` endpoint. Provider credentials remain server-side and must be configured through the encrypted credential workflow.
+
+
+## CLI setup wizard
+
+The Settings page now provides a **CLI setup wizard**, rather than only a generic connection JSON. Select a supported client, gateway URL, and model, then generate a provider-specific artifact that can be previewed, copied, or downloaded.
+
+Supported profiles are Pi Mono, Prime, Claude Code CLI, Codex CLI, OpenCode, Gemini CLI, Qwen CLI, Kimi CLI, Grok CLI, JCode CLI, and Custom CLI. OpenCode emits an `opencode.json` provider configuration and is restricted to loopback/private URLs. Codex emits a TOML preview for `~/.codex/config.toml`. Claude Code emits an environment-file template using `ANTHROPIC_BASE_URL` and `ANTHROPIC_API_KEY`. Other profiles emit documented OpenAI-compatible environment templates where the installed client supports custom endpoints.
+
+The generated artifact contains the gateway URL and a `$GATEWAY_API_KEY` placeholder only. It never contains a real provider secret, browser cookie, session token, password, or undocumented OAuth state. The wizard does not claim that every third-party CLI supports arbitrary base URLs; the install note instructs the user to confirm the installed version's documented configuration behavior. Applying a file to a user's home directory is intentionally a user-side download/copy action, not a server-side write.

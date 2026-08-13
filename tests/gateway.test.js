@@ -15,7 +15,7 @@ import { __testables as credentials } from "../src/lib/gateway/credentials.js";
 import { auditProviderEndpoint, detectLeakage, classifyIdentity, __testables as audit } from "../src/lib/gateway/audit.js";
 import { detectCustomEndpoint, normalizeCustomEndpointUrl } from "../src/lib/gateway/custom-endpoint.js";
 import { executePathModel } from "../src/lib/gateway/providers/openai.js";
-import { buildConnection, listProfiles } from "../src/lib/gateway/cli-profiles.js";
+import { buildConnection, buildSetup, listProfiles } from "../src/lib/gateway/cli-profiles.js";
 
 const tools = [{
   type: "function",
@@ -432,4 +432,23 @@ test("reliability queue manages concurrent requests without dropping them", asyn
   assert.deepEqual(values.sort((a, b) => a - b), Array.from({ length: 10 }, (_, index) => index));
   assert.equal(getReliabilityStats().failed, 0);
   clearReliabilityState();
+});
+
+
+test("CLI setup wizard emits provider-specific artifacts without secrets", () => {
+  const openCode = buildSetup({ profileId: "opencode", baseUrl: "http://127.0.0.1:4096/v1", model: "local/model" });
+  assert.equal(openCode.format, "json");
+  assert.match(openCode.content, /opencode.ai\/config\.json/);
+  assert.match(openCode.content, /baseURL/);
+  assert.equal(openCode.content.includes("authorized-secret"), false);
+
+  const codex = buildSetup({ profileId: "codex", baseUrl: "https://gateway.example.test/v1", model: "openai/gpt" });
+  assert.equal(codex.format, "toml");
+  assert.match(codex.content, /model_provider = "gateway"/);
+  assert.match(codex.content, /base_url/);
+
+  const claude = buildSetup({ profileId: "claude", baseUrl: "https://gateway.example.test/v1" });
+  assert.match(claude.content, /ANTHROPIC_BASE_URL/);
+  assert.match(claude.content, /GATEWAY_API_KEY/);
+  assert.equal(claude.content.includes("cookie"), false);
 });

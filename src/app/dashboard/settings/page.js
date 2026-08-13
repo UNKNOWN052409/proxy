@@ -66,8 +66,18 @@ export default function SettingsPage() {
     try {
       const res = await fetch("/api/config/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile: connectProfile, baseUrl: connectBaseUrl, model: connectModel || null }) });
       const data = await res.json();
-      setConnectOutput(data.success ? data.connection : { error: data.error });
+      setConnectOutput(data.success ? data.setup : { error: data.error });
     } catch (error) { setConnectOutput({ error: error.message }); }
+  };
+
+  const downloadCliConfig = () => {
+    if (!connectOutput?.content) return;
+    const blob = new Blob([connectOutput.content], { type: "text/plain;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = (connectOutput.fileName || "gateway-cli-config").replace(/^.*\//, "").replace(/^~/, "");
+    link.click();
+    URL.revokeObjectURL(link.href);
   };
 
   const handleStopTunnel = async () => {
@@ -219,8 +229,12 @@ export default function SettingsPage() {
             <label className="text-xs text-text-muted">Gateway/base URL<input value={connectBaseUrl} onChange={(e) => setConnectBaseUrl(e.target.value)} placeholder="http://127.0.0.1:20127/v1" className="mt-1 w-full h-10 rounded-lg border border-border bg-bg px-3 text-sm text-text-main" /></label>
             <label className="text-xs text-text-muted">Model (optional)<input value={connectModel} onChange={(e) => setConnectModel(e.target.value)} placeholder="provider/model-id" className="mt-1 w-full h-10 rounded-lg border border-border bg-bg px-3 text-sm text-text-main" /></label>
           </div>
-          <Button variant="primary" size="sm" icon="content_copy" onClick={handleGenerateConnection}>Generate connection config</Button>
-          {connectOutput && <pre className="p-4 rounded-xl bg-bg border border-border text-xs text-text-muted overflow-auto whitespace-pre-wrap">{JSON.stringify(connectOutput, null, 2)}</pre>}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" size="sm" icon="terminal" onClick={handleGenerateConnection}>Generate CLI setup</Button>
+            {connectOutput?.content && <Button variant="outline" size="sm" icon="download" onClick={downloadCliConfig}>Download {connectOutput.fileName}</Button>}
+            {connectOutput?.content && <Button variant="outline" size="sm" icon="content_copy" onClick={() => navigator.clipboard.writeText(connectOutput.content)}>Copy config</Button>}
+          </div>
+          {connectOutput && <div className="space-y-2"><p className="text-xs text-text-muted">{connectOutput.install || "Review this generated configuration and apply it using the CLI's documented setup flow."}</p><pre className="p-4 rounded-xl bg-bg border border-border text-xs text-text-muted overflow-auto whitespace-pre-wrap">{connectOutput.content || JSON.stringify(connectOutput, null, 2)}</pre>{connectOutput.command && <pre className="p-4 rounded-xl bg-bg border border-border text-xs text-text-muted overflow-auto whitespace-pre-wrap">{connectOutput.command}</pre>}</div>}
         </div>
       </Card>
 

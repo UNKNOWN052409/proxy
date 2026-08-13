@@ -15,7 +15,7 @@ export async function POST(request) {
       apiKeyEnv: body.apiKeyEnv || null,
       gatewayUrl: body.gatewayUrl || null,
     });
-    return Response.json({ success: true, connection: config });
+    return Response.json({ success: true, setup: config, connection: config });
   } catch (error) {
     return Response.json({ success: false, error: error instanceof Error ? error.message : "Invalid connection profile" }, { status: 400 });
   }
