@@ -2,7 +2,7 @@ import { getGatewayNotifications, getGatewayRuntimeState, getProviderModels, get
 import { getCredentialPoolStatus, markCredentialResult, selectCredential } from "./credentials.js";
 import { getDedicatedProviderProfile, listDedicatedProviderProfiles } from "./providers/dedicated.js";
 
-const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "GEMINI_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "MIMO_", "XIAOMI_", "GITLAB_", "LOVABLE_", "KIRO_", "DEEPSEEK_", "GROQ_", "PERPLEXITY_", "MISTRAL_", "COHERE_", "HUGGINGFACE_", "VERTEX_", "AZURE_", "NOTION_", "WINDSURF_"];
+const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "GEMINI_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "MIMO_", "XIAOMI_", "GITLAB_", "LOVABLE_", "KIRO_", "DEEPSEEK_", "GROQ_", "PERPLEXITY_", "MISTRAL_", "COHERE_", "HUGGINGFACE_", "VERTEX_", "AZURE_", "NOTION_", "WINDSURF_", "OPENROUTER_", "TOGETHER_", "FIREWORKS_", "CEREBRAS_", "SAMBANOVA_", "NVIDIA_", "CLOUDFLARE_", "AI_GATEWAY_"];
 const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic", "gemini", "gitlab", "bedrock", "custom", "connector"]);
 
 function splitModels(value) {
@@ -225,6 +225,13 @@ function environmentProviders() {
     ["mistral", "MISTRAL_API_KEY", "GATEWAY_MISTRAL_BASE_URL", "GATEWAY_MISTRAL_MODELS", null],
     ["cohere", "COHERE_API_KEY", "GATEWAY_COHERE_BASE_URL", "GATEWAY_COHERE_MODELS", null],
     ["huggingface", "HUGGINGFACE_API_KEY", "GATEWAY_HUGGINGFACE_BASE_URL", "GATEWAY_HUGGINGFACE_MODELS", null],
+    ["openrouter", "OPENROUTER_API_KEY", "GATEWAY_OPENROUTER_BASE_URL", "GATEWAY_OPENROUTER_MODELS", null],
+    ["together", "TOGETHER_API_KEY", "GATEWAY_TOGETHER_BASE_URL", "GATEWAY_TOGETHER_MODELS", null],
+    ["fireworks", "FIREWORKS_API_KEY", "GATEWAY_FIREWORKS_BASE_URL", "GATEWAY_FIREWORKS_MODELS", null],
+    ["cerebras", "CEREBRAS_API_KEY", "GATEWAY_CEREBRAS_BASE_URL", "GATEWAY_CEREBRAS_MODELS", null],
+    ["sambanova", "SAMBANOVA_API_KEY", "GATEWAY_SAMBANOVA_BASE_URL", "GATEWAY_SAMBANOVA_MODELS", null],
+    ["nvidia-nim", "NVIDIA_API_KEY", "GATEWAY_NVIDIA_NIM_BASE_URL", "GATEWAY_NVIDIA_NIM_MODELS", null],
+    ["vercel-ai-gateway", "AI_GATEWAY_API_KEY", "GATEWAY_VERCEL_AI_GATEWAY_BASE_URL", "GATEWAY_VERCEL_AI_GATEWAY_MODELS", null],
   ];
   if (qwenApiKeyEnv !== "DASHSCOPE_API_KEY" && !qwenApiKeyEnv.startsWith("GATEWAY_")) {
     throw new Error("GATEWAY_QWEN_API_KEY_ENV must reference a dedicated gateway secret variable");

@@ -73,3 +73,18 @@ OmniRoute issue #2760 describes xAI Grok OAuth for SuperGrok/X Premium+ and says
 CLIProxyAPI’s public documentation confirms an xAI OAuth login command, a local loopback callback on 127.0.0.1:56121, xAI Responses API routing, OpenAI-compatible chat/responses routes, image/video routes, and model aliases. This is subscription/entitlement-backed Grok Build access, not a free anonymous upstream. Provider-side 403s may still occur for accounts without the required SuperGrok/X Premium+ entitlement.
 
 Safe implementation conclusion: add a clearly labeled `xai-oauth` subscription OAuth provider only if using an official/public OAuth contract and user consent; do not add `grok-web` cookie import, web-session scraping, or claim no-auth/free access. The existing `grok` API-key provider remains valid. External translation can normalize documented OpenAI/Responses requests, but cannot bypass xAI entitlement or make protected web routes legitimate API endpoints.
+
+## GitHub provider adapter audit sources (2026-08-13)
+
+Initial public sources for the expanded provider audit:
+
+- https://github.com/NousResearch/hermes-agent/blob/main/website/docs/integrations/providers.md — Hermes documented inference-provider integrations.
+- https://github.com/NousResearch/hermes-agent/blob/main/website/docs/developer-guide/adding-providers.md — Hermes provider/auth/adapter extension guidance.
+- https://github.com/router-for-me/CLIProxyAPI — multi-provider CLI proxy with documented OAuth and API-key provider paths.
+- https://github.com/diegosouzapw/OmniRoute — local gateway with OAuth/API-key provider catalog; its published catalog also contains web-cookie and catalog-only categories that are excluded from this gateway.
+- https://github.com/diegosouzapw/OmniRoute/wiki/Architecture — public architecture description for modular OAuth/provider modules.
+- https://github.com/aws-solutions-library-samples/guidance-for-multi-provider-generative-ai-gateway-on-aws — official AWS multi-provider gateway reference.
+
+These sources will be classified into official OAuth/device-code, API-key, user-owned local, catalog-only documented endpoint, and excluded web-cookie/session/MITM categories before implementation. No provider will be enabled solely because a public repository contains code for it.
+
+A targeted GitHub tree audit found that CLIProxyAPI and OmniRoute contain many provider-specific modules for Codex, Claude, Qwen, Grok, Kimi, Gemini, OpenCode, and Copilot. The same public trees also contain browser-interception, web-cookie, token-replay/cache, and CDP/browser helper modules. Therefore repository presence alone is not sufficient to treat a provider as a safe OAuth adapter. Each provider must be accepted only when the OAuth/device/API-key contract is official or the endpoint is user-owned/local; web-cookie, browser/CDP and session replay modules remain excluded.
