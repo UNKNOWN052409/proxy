@@ -6,6 +6,7 @@ import { userConfig } from "@/lib/config/store";
 import { spawn, execSync } from "child_process";
 import { platform } from "os";
 import path from "path";
+import * as cloudflareTunnel from "@/lib/tunnel/manager";
 
 function findNgrok() {
   const isWin = platform() === "win32";
@@ -85,22 +86,38 @@ async function getTunnelUrlFromApi() {
 
 export async function GET() {
   const config = userConfig.get();
+  const managed = await cloudflareTunnel.status();
   let liveUrl = null;
-  if (config.tunnelEnabled) {
+  if (config.tunnelEnabled && config.tunnelProvider !== "cloudflare") {
     liveUrl = await getTunnelUrlFromApi();
   }
   return Response.json({
-    enabled: config.tunnelEnabled,
-    url: liveUrl || config.tunnelUrl || null,
+    enabled: managed.enabled || config.tunnelEnabled,
+    url: managed.url || liveUrl || config.tunnelUrl || null,
     customDomain: config.customDomain || null,
     port: config.port,
+    provider: managed.provider || config.tunnelProvider || null,
+    mode: managed.mode || config.tunnelMode || null,
+    monitoring: managed,
   });
 }
 
 export async function POST(request) {
   try {
-    const { action, domain } = await request.json();
-    const port = 20127;
+    const { action, domain, provider = "cloudflare", mode = "quick", name = null, hostname = null, port = userConfig.get().port || 20127 } = await request.json();
+
+    if (action === "start" && provider === "cloudflare") {
+      const result = await cloudflareTunnel.start({ mode, name, hostname, port });
+      return Response.json({ success: true, ...result, message: mode === "named" ? "Named Cloudflare tunnel started" : "Temporary Cloudflare Quick Tunnel started" });
+    }
+
+    if (action === "status") {
+      return Response.json({ success: true, ...(await cloudflareTunnel.status()) });
+    }
+
+    if (action === "restart") {
+      return Response.json({ success: true, ...(await cloudflareTunnel.restart()) });
+    }
 
     if (action === "start") {
       const existingUrl = await getTunnelUrlFromApi();
@@ -114,6 +131,9 @@ export async function POST(request) {
     }
 
     if (action === "stop") {
+      if (provider === "cloudflare" || userConfig.get().tunnelProvider === "cloudflare") {
+        return Response.json({ success: true, ...(await cloudflareTunnel.stop()), message: "Cloudflare tunnel stopped" });
+      }
       try { await fetch("http://127.0.0.1:4040/api/tunnels", { method: "DELETE" }); } catch { /* ignore */ }
       try {
         if (platform() === "win32") execSync("taskkill /F /IM ngrok.exe 2>NUL", { stdio: "ignore" });

@@ -14,6 +14,9 @@ export default function SettingsPage() {
   const [passSuccess, setPassSuccess] = useState("");
   const [hasPassword, setHasPassword] = useState(false);
   const [tunnelMessage, setTunnelMessage] = useState("");
+  const [tunnelMode, setTunnelMode] = useState("quick");
+  const [tunnelName, setTunnelName] = useState("");
+  const [tunnelHostname, setTunnelHostname] = useState("");
 
   useEffect(() => {
     fetch("/api/config/tunnel")
@@ -34,7 +37,7 @@ export default function SettingsPage() {
       const res = await fetch("/api/config/tunnel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "start" }),
+        body: JSON.stringify({ action: "start", provider: "cloudflare", mode: tunnelMode, name: tunnelName || null, hostname: tunnelHostname || null }),
       });
       const data = await res.json();
       if (data.success) {
@@ -119,8 +122,14 @@ export default function SettingsPage() {
       </div>
 
       {/* Tunnel / Public Access */}
-      <Card title="Public Access (Tunnel)" icon="public" subtitle="Make your proxy accessible from anywhere via ngrok">
+      <Card title="Public Access (Tunnel)" icon="public" subtitle="Temporary Cloudflare Quick Tunnel or a persistent user-owned named tunnel">
         <div className="space-y-4">
+          <div className="grid sm:grid-cols-3 gap-3">
+            <label className="text-xs text-text-muted">Tunnel mode<select value={tunnelMode} onChange={(e) => setTunnelMode(e.target.value)} className="mt-1 w-full h-10 rounded-lg border border-border bg-bg px-3 text-sm text-text-main"><option value="quick">Quick Tunnel (temporary)</option><option value="named">Named Tunnel (persistent)</option></select></label>
+            <label className="text-xs text-text-muted">Cloudflare tunnel name<input value={tunnelName} onChange={(e) => setTunnelName(e.target.value)} placeholder="required for named mode" className="mt-1 w-full h-10 rounded-lg border border-border bg-bg px-3 text-sm text-text-main" /></label>
+            <label className="text-xs text-text-muted">Public hostname<input value={tunnelHostname} onChange={(e) => setTunnelHostname(e.target.value)} placeholder="https://api.example.com" className="mt-1 w-full h-10 rounded-lg border border-border bg-bg px-3 text-sm text-text-main" /></label>
+          </div>
+          <p className="text-xs text-text-muted">Quick Tunnel URLs are temporary. A named tunnel remains available only while the Cloudflare tunnel service and your domain configuration are running; the gateway cannot make a Quick Tunnel permanent.</p>
           <p className="text-sm text-text-muted">
             Expose your local proxy to the internet. Anyone with the URL can use your endpoint.
             Keep your dashboard password strong when public access is enabled.
@@ -164,6 +173,15 @@ export default function SettingsPage() {
           {tunnelMessage && (
             <div className={`p-3 rounded-lg text-sm ${tunnelMessage.includes("active") ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-400 border border-amber-500/20"}`}>
               {tunnelMessage}
+            </div>
+          )}
+
+          {tunnel.monitoring && (
+            <div className="grid sm:grid-cols-4 gap-2 text-xs">
+              <div className="p-3 rounded-lg bg-surface-2/50 border border-border"><span className="text-text-muted">Status</span><p className="text-text-main font-medium mt-1">{tunnel.monitoring.status || "unknown"}</p></div>
+              <div className="p-3 rounded-lg bg-surface-2/50 border border-border"><span className="text-text-muted">Local health</span><p className="text-text-main font-medium mt-1">{tunnel.monitoring.localHealthy == null ? "—" : tunnel.monitoring.localHealthy ? "Healthy" : "Down"}</p></div>
+              <div className="p-3 rounded-lg bg-surface-2/50 border border-border"><span className="text-text-muted">Public health</span><p className="text-text-main font-medium mt-1">{tunnel.monitoring.publicHealthy == null ? "—" : tunnel.monitoring.publicHealthy ? "Healthy" : "Down"}</p></div>
+              <div className="p-3 rounded-lg bg-surface-2/50 border border-border"><span className="text-text-muted">Last check</span><p className="text-text-main font-medium mt-1">{tunnel.monitoring.lastCheckAt ? new Date(tunnel.monitoring.lastCheckAt).toLocaleTimeString() : "—"}</p></div>
             </div>
           )}
 

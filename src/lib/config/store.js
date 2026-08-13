@@ -23,6 +23,11 @@ const DEFAULTS = {
   tunnelUrl: null,
   tunnelProcessId: null,
   customDomain: null,
+  tunnelProvider: null,
+  tunnelMode: null,
+  tunnelStatus: "stopped",
+  tunnelLastCheckAt: null,
+  tunnelLastError: null,
   port: 20127,
 };
 

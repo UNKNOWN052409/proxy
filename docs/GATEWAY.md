@@ -471,3 +471,24 @@ Upstream calls use a default five-second timeout (`GATEWAY_UPSTREAM_TIMEOUT_MS`)
 The external tool layer validates OpenAI function schemas, `tool_choice`, `tool_call_id` references, tool result content, declared-tool permissions, and `parallel_tool_calls`. Native provider responses are normalized to stable OpenAI tool-call IDs and JSON arguments. Providers without native tool support use the existing client-managed shim, which returns tool calls but never executes them. Streaming responses are emitted through the gateway SSE adapter; tool-call frames are normalized before emission, while actual tool execution remains the responsibility of the client or an explicitly authorized external tool runner.
 
 The diagnostics endpoint exposes only queue counters, timeout/retry configuration, idempotency-entry count, and provider health metadata. It never exposes request bodies, API keys, cookies, session material, or tool arguments. A failed provider may still be routed to an explicitly configured fallback provider subject to the API key's provider/model permissions.
+
+
+## Tunnel lifecycle and monitoring
+
+The dashboard supports **Cloudflare Quick Tunnel** creation for temporary testing and an existing user-owned **named Cloudflare Tunnel** for persistent domain access. A Quick Tunnel URL is intentionally ephemeral; the gateway cannot make it permanent. For durable access, create and authenticate a named tunnel in the user's Cloudflare account, map the chosen hostname to the gateway service, and run the connector under a process supervisor.
+
+The tunnel manager stores only redacted lifecycle metadata: provider, mode, URL, PID, status, local health, public health, last check time, restart count, and the last non-secret error. It never stores or displays Cloudflare tokens. Monitoring checks the local `/health` endpoint and, when available, the public `/health` endpoint every 15 seconds by default (`TUNNEL_MONITOR_INTERVAL_MS` can change this). A failed connector process is restarted up to three times within five minutes; after that, the status remains degraded/down and requires operator intervention rather than looping indefinitely.
+
+The API is available at `GET /api/config/tunnel` and `POST /api/config/tunnel` with these actions:
+
+| Action | Purpose |
+|---|---|
+| `start` with `{provider:"cloudflare", mode:"quick"}` | Start an ephemeral Quick Tunnel to the configured local gateway port. |
+| `start` with `{provider:"cloudflare", mode:"named", name:"my-tunnel", hostname:"https://api.example.com"}` | Run an already-created, already-authenticated named tunnel. The API does not create Cloudflare account resources or accept tokens. |
+| `status` | Return redacted local/public health and connector state. |
+| `restart` | Restart the managed Cloudflare connector using its current mode and configuration. |
+| `stop` | Stop the managed connector. |
+
+For production, the dashboard must have a strong password, the public API must require gateway authentication, and the named tunnel should use an explicit hostname and least-privilege ingress rule. A monitor can detect and restart the connector or gateway process, but it cannot guarantee that an upstream provider, DNS service, VPS, or network remains available; external alerting and a service supervisor are still recommended.
+
+Tailscale is not automatically enabled because it requires a user-owned tailnet and authentication state. It remains a suitable private-network alternative when access should be restricted to the user's own devices rather than a public domain.
