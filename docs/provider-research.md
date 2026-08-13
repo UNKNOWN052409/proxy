@@ -124,3 +124,43 @@ Sources: https://kiro.dev/docs/getting-started/authentication/ ; https://kiro.de
 The gateway’s Kiro provider profile now exposes the paid-plan, authorized-endpoint requirement directly in dashboard status, retains the note after a provider is configured, and explicitly excludes browser OAuth, cookies, passwords, browser sessions, and intercepted traffic. The encrypted credential import UI documents both `apiKey` and `token` formats. Regression coverage verifies bearer-token configuration, API-key fallback status, secret redaction, Kiro’s no-OAuth directory metadata, and the provider’s authorized-endpoint guidance.
 
 Sources: https://kiro.dev/docs/getting-started/authentication/ ; https://kiro.dev/docs/cli/headless/ ; https://kiro.dev/
+
+
+## OAuth/auth-method audit update — Hugging Face and xAI (2026-08-14)
+
+| Provider | Officially documented inference authorization methods | Gateway audit conclusion | Source |
+|---|---|---|---|
+| Hugging Face Inference Providers | Fine-grained API token; OAuth authorization code + PKCE; OAuth device code; Enterprise token exchange for organization workflows. The `inference-api` and `read-endpoints` scopes authorize inference-related access. | The existing authorization-code/PKCE integration is valid. Device-code is a valid additional gateway flow because it uses the provider’s published `/oauth/device` and `/oauth/token` endpoints with explicit user consent; it must keep the opaque device code server-side. Enterprise token exchange is not added because it requires separate organization entitlements and a dedicated administrator-controlled setup. | [HF OAuth](https://huggingface.co/docs/hub/en/oauth); [HF Inference Providers](https://huggingface.co/docs/inference-providers/en/index) |
+| xAI API | Direct inference is documented with an xAI team API key as an HTTP Bearer token. The Grok Build CLI documentation separately describes browser OIDC and RFC 8628 device-code session authentication, but this is a CLI/enterprise deployment authentication path rather than xAI’s public API inference OAuth contract. | Keep the direct `grok` API-key provider as the official external API path. The separate subscription OAuth profile must be explicitly labeled as Grok Build/CLI entitlement-backed rather than being presented as a generic xAI public API OAuth method. No browser session or CLI token import is permitted. | [xAI API quickstart](https://docs.x.ai/developers/quickstart); [xAI Management API authentication](https://docs.x.ai/developers/rest-api-reference/management/auth); [Grok Build Enterprise authentication](https://docs.x.ai/build/enterprise) |
+
+> Device-code implementation rule: return only `verification_uri`, `user_code`, expiry, interval, and an opaque gateway state to the authenticated administrator. Retain the provider `device_code` solely in protected server-side state and store only the successful access/refresh tokens in encrypted storage.
+
+
+
+## Authorization-method implementation update (2026-08-14)
+
+The gateway catalog now classifies provider access by **official authorization method**. A free-tier or catalog label is not an access grant: it becomes usable only when the provider publishes an official API or OAuth inference entitlement for the connected account.
+
+| Provider family | Gateway methods surfaced | Verified boundary |
+|---|---|---|
+| Gemini / Vertex AI | API key; authorization code + PKCE; device authorization; external service account / ADC setup | Device authorization requires an administrator-owned OAuth client and enabled Cloud project. Browser-chat sessions are not imported. [Google Gemini OAuth](https://ai.google.dev/gemini-api/docs/oauth) |
+| Azure OpenAI | Resource API key; Entra authorization code + PKCE; device code; external service principal or managed identity | Resource access remains subject to Azure OpenAI RBAC. Managed identity and service-principal material are deployment configuration, not dashboard browser credentials. [Azure managed identity](https://learn.microsoft.com/azure/ai-foundry/openai/how-to/managed-identity) |
+| Hugging Face | API key; authorization code + PKCE; device code | Uses documented OAuth endpoints and inference scopes. [Hugging Face OAuth](https://huggingface.co/docs/hub/en/oauth) |
+| Manus | Official Open App authorization code + PKCE | User/application consent with encrypted refresh-token storage. |
+| Notion | Official workspace connector authorization-code flow | Connector-only; it does not convert a third-party UI into an inference API. |
+| xAI / Grok | Existing entitlement-backed PKCE profile plus official xAI API key | No additional device endpoint was added because a provider-published endpoint was not independently confirmed. [xAI quickstart](https://docs.x.ai/developers/quickstart) |
+| OpenAI, Anthropic, Qwen, MiMo, Kimi, DeepSeek, Mistral, Cohere, Perplexity, OpenRouter, Together, Fireworks, Cerebras, SambaNova, NVIDIA NIM, Cloudflare Workers AI, Vercel AI Gateway, GitLab, Kiro, Lovable | Official API key, bearer token, cloud/workload identity, or explicit compatible endpoint per provider profile | No generic third-party inference OAuth/device flow was added without a provider-published authorization contract. |
+| AWS Bedrock | AWS IAM access keys/session credentials/workload role | SigV4 and IAM roles are workload identity, not OAuth browser consent. |
+| OpenCode, Ollama, LM Studio | Local/self-operated endpoint and loopback no-auth where documented | Never classified as remote third-party no-auth or browser-session access. |
+
+### Implemented controls
+
+`POST /api/gateway/oauth/[provider]/device` is admin-protected and implements the official device-code pattern only for profiles with a documented device endpoint. It writes a short-lived opaque server-side state record, returns only the user code and official verification URL, enforces polling intervals, handles `authorization_pending` and `slow_down`, deletes state after completion/error, and encrypts a token only after a successful exchange. The provider device code is never returned to the browser.
+
+The provider catalog now displays the official access category, published and discovered models, encrypted credential-pool readiness, expired-account count, authorization methods, and existing safe model-discovery/credential-verification actions. Browser cookies, passwords, captured sessions, private headers, and free web-chat account conversion remain explicitly unsupported.
+
+### Regression coverage
+
+- `tests/oauth-device-code.test.js`: opaque state, enforced interval, pending response, success-only token import, and device-code redaction.
+- `tests/gemini-config.test.js`: Gemini, Hugging Face, and Azure device-code metadata and normalized endpoint visibility.
+- Production build validates the device OAuth route and categorized dashboard compile path.

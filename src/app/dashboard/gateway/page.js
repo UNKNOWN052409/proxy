@@ -60,6 +60,14 @@ function auditBadge(audit) {
   return { variant: "success", label: "Provisionally consistent" };
 }
 
+function accessCategory(profile) {
+  if (profile.localOnly) return { id: "local", title: "Local / documented no-auth", detail: "Only loopback or user-operated local model servers; never a third-party web session." };
+  if (profile.catalogOnly || profile.freeTierCatalog) return { id: "catalog", title: "Catalog candidate / explicit setup", detail: "Availability must be verified against official documentation and your own authorized account." };
+  if (profile.authModes?.some((mode) => mode.startsWith("oauth2"))) return { id: "oauth", title: "Official OAuth or device authorization", detail: "Provider-published consent flow; tokens are encrypted per account." };
+  if (profile.authModes?.some((mode) => ["api-key", "bearer-token", "aws-credentials", "service-principal", "managed-identity", "service-account"].includes(mode))) return { id: "api", title: "Official API key, token, or workload identity", detail: "Use only a provider-issued credential or configured workload identity." };
+  return { id: "custom", title: "Authorized custom endpoint", detail: "Requires an explicitly documented or administrator-authorized endpoint and credential." };
+}
+
 export default function GatewayPage() {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -74,6 +82,7 @@ export default function GatewayPage() {
   const [contextSize, setContextSize] = useState(0);
   const [verifyOnImport, setVerifyOnImport] = useState(true);
   const [credentialResults, setCredentialResults] = useState({});
+  const [deviceAuthorizations, setDeviceAuthorizations] = useState({});
   const baseUrl = useMemo(() => typeof window === "undefined" ? "http://localhost:2018/v1" : `${window.location.origin}/v1`, []);
 
   const refresh = async ({ silent = false } = {}) => {
@@ -155,6 +164,46 @@ export default function GatewayPage() {
       window.location.assign(result.authorizationUrl);
     } catch (error) {
       setMessage({ type: "error", text: error.message || "OAuth authorization could not be started" });
+      setBusyProvider(null);
+    }
+  };
+
+  const startDeviceAuthorization = async (providerId) => {
+    setBusyProvider(`device:${providerId}`);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/gateway/oauth/${encodeURIComponent(providerId)}/device`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start" }) });
+      const result = await response.json();
+      if (!response.ok || !result.state || !result.userCode) throw new Error(result.error || "Device authorization could not be started");
+      setDeviceAuthorizations((current) => ({ ...current, [providerId]: result }));
+      setMessage({ type: "success", text: `${providerId}: open the verification link and enter the displayed code. The gateway never receives browser cookies or sessions.` });
+    } catch (error) {
+      setMessage({ type: "error", text: error.message || "Device authorization could not be started" });
+    } finally {
+      setBusyProvider(null);
+    }
+  };
+
+  const pollDeviceAuthorization = async (providerId) => {
+    const device = deviceAuthorizations[providerId];
+    if (!device?.state) return;
+    setBusyProvider(`device:${providerId}`);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/gateway/oauth/${encodeURIComponent(providerId)}/device`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "poll", state: device.state }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Device authorization check failed");
+      if (result.authorized) {
+        setDeviceAuthorizations((current) => { const next = { ...current }; delete next[providerId]; return next; });
+        setMessage({ type: "success", text: `${providerId}: official OAuth token encrypted and connected.` });
+        await refresh({ silent: true });
+      } else {
+        setDeviceAuthorizations((current) => ({ ...current, [providerId]: { ...device, retryAfterSeconds: result.retryAfterSeconds } }));
+        setMessage({ type: "warning", text: `${providerId}: authorization is still pending. Retry after ${result.retryAfterSeconds || 5} seconds.` });
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: error.message || "Device authorization check failed" });
+    } finally {
       setBusyProvider(null);
     }
   };
@@ -242,6 +291,15 @@ export default function GatewayPage() {
 
   if (loading) return <div className="space-y-6"><Skeleton variant="card" /><Skeleton variant="card" /><Skeleton variant="card" /></div>;
   const providers = status?.providers || [];
+  const supportedProviders = status?.supportedProviders || [];
+  const configuredProviders = new Map(providers.map((provider) => [provider.id, provider]));
+  const providerCategories = [
+    { id: "oauth", title: "Official OAuth / device authorization", detail: "Use provider-published PKCE or device-code consent. One encrypted credential pool is kept per provider, with no browser-session conversion." },
+    { id: "api", title: "Official API key / workload identity", detail: "Use API keys, provider-issued bearer tokens, service accounts, workload identities, or cloud credentials documented for API inference." },
+    { id: "local", title: "Local / documented no-auth", detail: "Only local or self-operated services. No-auth is never used for third-party web applications." },
+    { id: "custom", title: "Authorized custom endpoint", detail: "Requires an explicit compatible endpoint and its authorized credential." },
+    { id: "catalog", title: "Catalog candidate / free-tier requires verification", detail: "A catalog label is not a free-access claim. Enable only an official free API or OAuth inference entitlement when the provider publishes one." },
+  ].map((category) => ({ ...category, profiles: supportedProviders.filter((profile) => accessCategory(profile).id === category.id) })).filter((category) => category.profiles.length > 0);
 
   return (
     <div className="space-y-6">
@@ -266,9 +324,19 @@ export default function GatewayPage() {
 
       {importOpen && <Card title="Import authorized API-key pool" icon="key" subtitle="Keys are encrypted locally with GATEWAY_CREDENTIAL_MASTER_KEY and never returned after import."><div className="space-y-3"><div className="grid sm:grid-cols-2 gap-3"><input value={credentialProvider} onChange={(event) => setCredentialProvider(event.target.value)} placeholder="provider id, e.g. custom-api" className="rounded-xl border border-border bg-bg p-3 text-sm text-text-main" /><textarea value={credentialText} onChange={(event) => setCredentialText(event.target.value)} placeholder={'[{\"label\":\"primary\",\"apiKey\":\"...\"}] or [{\"label\":\"token\",\"token\":\"...\"}]'} className="min-h-[100px] rounded-xl border border-border bg-bg p-3 text-xs font-mono text-text-main" spellCheck="false" /></div><div className="flex items-center justify-between gap-2 text-xs text-text-muted"><div><p>Only user-owned API keys or official OAuth tokens. Cookies, passwords, and session tokens are rejected.</p><label className="inline-flex items-center gap-2 mt-2"><input type="checkbox" checked={verifyOnImport} onChange={(event) => setVerifyOnImport(event.target.checked)} /><span>Run health, TTFT, and canary verification after import</span></label></div><Button variant="primary" size="sm" icon="lock" loading={busyProvider === "credentials"} disabled={!credentialProvider || !credentialText} onClick={importCredentials}>Encrypt & import</Button></div></div></Card>}
 
-      {(status?.supportedProviders || []).some((profile) => profile.authModes?.some((mode) => mode.includes("oauth"))) && <Card title="Official OAuth connections" icon="account_circle" subtitle="Starts provider consent in a new OAuth redirect. Tokens remain encrypted and are never shown in the dashboard."><div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">{(status?.supportedProviders || []).filter((profile) => profile.authModes?.some((mode) => mode.includes("oauth"))).map((profile) => <div key={`oauth-${profile.id}`} className="rounded-xl border border-border bg-bg p-3"><div className="flex items-center gap-3"><ProviderLogo provider={profile} size="sm" /><div className="min-w-0 flex-1"><p className="text-sm font-medium text-text-main truncate">{profile.label}</p><p className="text-[11px] text-text-muted truncate">{profile.oauthStatus || "Official OAuth"}</p></div></div><p className="mt-3 text-[11px] text-text-subtle">{profile.status === "available" ? "Ready to begin provider consent." : profile.availabilityReason || "Client configuration is required before OAuth can start."}</p><Button variant="outline" size="sm" icon="login" loading={busyProvider === `oauth:${profile.id}`} className="mt-3" onClick={() => connectOAuth(profile.id)}>Connect OAuth</Button></div>)}</div></Card>}
+      {(status?.supportedProviders || []).some((profile) => profile.authModes?.some((mode) => mode.includes("oauth"))) && <Card title="Official OAuth connections" icon="account_circle" subtitle="Uses provider-published consent only. Tokens are encrypted locally and browser cookies or sessions are never imported."><div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">{(status?.supportedProviders || []).filter((profile) => profile.authModes?.some((mode) => mode.includes("oauth"))).map((profile) => {
+        const device = deviceAuthorizations[profile.id];
+        const supportsDeviceCode = profile.authModes?.includes("oauth2-device-code") && profile.oauthDeviceCodeUrl;
+        return <div key={`oauth-${profile.id}`} className="rounded-xl border border-border bg-bg p-3"><div className="flex items-center gap-3"><ProviderLogo provider={profile} size="sm" /><div className="min-w-0 flex-1"><p className="text-sm font-medium text-text-main truncate">{profile.label}</p><p className="text-[11px] text-text-muted truncate">{profile.oauthStatus || "Official OAuth"}</p></div></div><p className="mt-3 text-[11px] text-text-subtle">{profile.status === "available" ? "Ready to begin provider consent." : profile.availabilityReason || "Client configuration is required before OAuth can start."}</p><div className="mt-3 flex flex-wrap gap-2"><Button variant="outline" size="sm" icon="login" loading={busyProvider === `oauth:${profile.id}`} onClick={() => connectOAuth(profile.id)}>Browser OAuth</Button>{supportsDeviceCode && <Button variant="outline" size="sm" icon="phonelink_lock" loading={busyProvider === `device:${profile.id}`} onClick={() => startDeviceAuthorization(profile.id)}>Device code</Button>}</div>{device && <div className="mt-3 rounded-lg border border-brand-500/25 bg-brand-500/10 p-3 text-xs text-text-main"><p>Enter code: <code className="font-bold tracking-wide">{device.userCode}</code></p><a href={device.verificationUriComplete || device.verificationUri} target="_blank" rel="noreferrer" className="mt-1 inline-block text-brand-300 underline">Open official verification page</a><div className="mt-2 flex items-center gap-2"><Button variant="outline" size="sm" icon="refresh" loading={busyProvider === `device:${profile.id}`} onClick={() => pollDeviceAuthorization(profile.id)}>Check connection</Button><span className="text-[11px] text-text-subtle">Expires in {Math.ceil((device.expiresIn || 0) / 60)} min</span></div></div>}</div>;
+      })}</div></Card>}
 
-      <Card title="Provider directory" icon="apps" subtitle="Dedicated adapters and official/custom endpoint boundaries. Missing logo assets use a branded monogram fallback."><div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">{(status?.supportedProviders || []).map((profile) => <div key={profile.id} className="flex items-center gap-3 p-3 rounded-xl bg-bg border border-border"><ProviderLogo provider={profile} size="sm" /><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="text-sm font-medium text-text-main truncate">{profile.label}</p><span className={`h-1.5 w-1.5 rounded-full ${profile.status === "available" ? "bg-emerald-400" : "bg-amber-400"}`} title={profile.status === "available" ? "Available" : "Unavailable"} /></div><p className="text-[11px] text-text-muted mt-0.5">{profile.officialApi === true ? "Official API" : profile.officialApi === "self-managed-only" ? "Self-managed API" : profile.officialApi === "local-openapi" ? "Local OpenAPI" : "Custom endpoint"}</p><p className={`text-[11px] truncate ${profile.status === "available" ? "text-emerald-300" : "text-amber-300"}`}>{profile.status === "available" ? (profile.localOnly ? "Available locally" : "Available") : profile.catalogOnly ? "Catalog candidate · explicit setup required" : "Unavailable · setup required"}</p><p className="text-[11px] text-text-subtle truncate">{profile.models?.length ? `${profile.models.length} catalog models` : "Model catalog configured at runtime"}</p><p className="text-[11px] text-text-subtle truncate" title={profile.availabilityReason}>{profile.availabilityReason}</p>{profile.availabilityNote && <p className="text-[11px] text-text-subtle line-clamp-2" title={profile.availabilityNote}>{profile.availabilityNote}</p>}{profile.authModes?.length > 0 && <p className="text-[11px] text-text-subtle truncate">Auth: {profile.authModes.join(" · ")}</p>}{profile.oauthStatus && <p className="text-[11px] text-amber-300 truncate">OAuth: {profile.oauthStatus === "discontinued-2026-04-15" ? "legacy flow discontinued" : profile.oauthStatus}</p>}</div></div>)}</div></Card>
+      <Card title="Provider access catalog" icon="apps" subtitle="Choose access by the provider’s official authorization method. A “free” catalog entry is usable only where the provider exposes an official free API or OAuth inference entitlement."><div className="space-y-5">{providerCategories.map((category) => <section key={category.id}><div className="mb-2"><p className="text-sm font-semibold text-text-main">{category.title}</p><p className="text-xs text-text-muted mt-0.5">{category.detail}</p></div><div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">{category.profiles.map((profile) => {
+        const configuredProvider = configuredProviders.get(profile.id);
+        const modelList = [...new Set([...(profile.discoveredModels || []), ...(profile.models || [])])];
+        const credentialCount = profile.credentialPool?.count || 0;
+        const readyCredentials = profile.credentialPool?.ready || 0;
+        return <div key={profile.id} className="rounded-xl bg-bg border border-border p-3"><div className="flex items-start gap-3"><ProviderLogo provider={profile} size="sm" /><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="text-sm font-medium text-text-main truncate">{profile.label}</p><span className={`h-1.5 w-1.5 rounded-full ${profile.status === "available" ? "bg-emerald-400" : "bg-amber-400"}`} title={profile.status === "available" ? "Configured" : "Setup required"} /></div><p className="text-[11px] text-text-muted mt-0.5">{profile.officialApi === true ? "Official API" : profile.officialApi === "self-managed-only" ? "Self-managed API" : profile.officialApi === "local-openapi" ? "Local OpenAPI" : "Authorized custom endpoint"}</p></div></div><div className="mt-3 space-y-1.5 text-[11px]"><p className={profile.status === "available" ? "text-emerald-300" : "text-amber-300"}>{profile.status === "available" ? (profile.localOnly ? "Available locally" : "Configured or OAuth client ready") : profile.catalogOnly ? "Catalog candidate · explicit setup required" : "Setup required"}</p><p className="text-text-subtle">Models: {modelList.length ? `${modelList.length} listed` : "discover after authorized setup"}</p>{modelList.length > 0 && <p className="font-mono text-text-muted line-clamp-2" title={modelList.join(", ")}>{modelList.slice(0, 5).join(" · ")}{modelList.length > 5 ? ` · +${modelList.length - 5}` : ""}</p>}<p className="text-text-subtle">Encrypted accounts: {credentialCount ? `${readyCredentials}/${credentialCount} ready` : "none imported"}{profile.credentialPool?.expired ? ` · ${profile.credentialPool.expired} expired` : ""}</p>{profile.authModes?.length > 0 && <p className="text-text-subtle line-clamp-2">Auth: {profile.authModes.join(" · ")}</p>}<p className="text-text-subtle line-clamp-2" title={profile.availabilityNote || profile.availabilityReason}>{profile.availabilityNote || profile.availabilityReason}</p></div>{configuredProvider && <div className="mt-3 flex flex-wrap gap-2"><Button variant="outline" size="sm" icon="sync" loading={busyProvider === profile.id} onClick={() => refreshProvider(profile.id)}>Test & import models</Button>{credentialCount > 0 && <Button variant="outline" size="sm" icon="verified" loading={busyProvider === `credentials:${profile.id}`} onClick={() => verifyCredentialPool(profile.id)}>Verify credentials</Button>}</div>}</div>;
+      })}</div></section>)}</div></Card>
 
       <Card title="Authorized providers" icon="hub" subtitle="Validate credentials with a documented model-list request, then selectively enable each provider.">
         <div className="flex justify-end mb-3"><Button variant="outline" size="sm" icon="sync" loading={busyProvider === "all"} disabled={providers.length === 0} onClick={() => refreshProvider()}>Refresh all models</Button></div>

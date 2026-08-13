@@ -114,8 +114,9 @@ function normalizeProvider(provider) {
     costInputPerMillion: Number.isFinite(Number(provider.costInputPerMillion)) ? Number(provider.costInputPerMillion) : null,
     costOutputPerMillion: Number.isFinite(Number(provider.costOutputPerMillion)) ? Number(provider.costOutputPerMillion) : null,
     contextWindow: Number.isFinite(Number(provider.contextWindow)) ? Number(provider.contextWindow) : null,
-    oauthAuthUrl: provider.oauthAuthUrl ? normalizeBaseUrl(provider.oauthAuthUrl, `${id} OAuth authorization`) : null,
-    oauthTokenUrl: provider.oauthTokenUrl ? normalizeBaseUrl(provider.oauthTokenUrl, `${id} OAuth token`) : null,
+    oauthAuthUrl: provider.oauthAuthUrl ? normalizeBaseUrl(provider.oauthAuthUrl, `${id} OAuth authorization`) : (profile?.oauthAuthUrl ? normalizeBaseUrl(profile.oauthAuthUrl, `${id} OAuth authorization`) : null),
+    oauthDeviceCodeUrl: provider.oauthDeviceCodeUrl ? normalizeBaseUrl(provider.oauthDeviceCodeUrl, `${id} OAuth device authorization`) : (profile?.oauthDeviceCodeUrl ? normalizeBaseUrl(profile.oauthDeviceCodeUrl, `${id} OAuth device authorization`) : null),
+    oauthTokenUrl: provider.oauthTokenUrl ? normalizeBaseUrl(provider.oauthTokenUrl, `${id} OAuth token`) : (profile?.oauthTokenUrl ? normalizeBaseUrl(profile.oauthTokenUrl, `${id} OAuth token`) : null),
     oauthClientIdEnv: provider.oauthClientIdEnv ? String(provider.oauthClientIdEnv).trim() : null,
     oauthClientSecretEnv: provider.oauthClientSecretEnv ? String(provider.oauthClientSecretEnv).trim() : null,
     oauthTokenAuth: String(provider.oauthTokenAuth || profile?.oauthTokenAuth || "").trim().toLowerCase() || null,
@@ -352,12 +353,17 @@ export function getGatewayStatus() {
     notifications: getGatewayNotifications(),
     lastRefreshAt: runtime.lastRefreshAt,
     supportedProviders: listDedicatedProviderProfiles().map(({ apiKeyEnv, ...profile }) => {
+      const configuredProvider = providers.find((provider) => provider.id === profile.id) || null;
+      const credentialPool = configuredProvider?.credentialPool || getCredentialPoolStatus(profile.id);
+      const discoveredModels = runtime.modelCatalog[profile.id]?.models || configuredProvider?.models || [];
       const configured = profile.localOnly
         ? true
-        : Boolean((apiKeyEnv && process.env[apiKeyEnv]) || (profile.oauthClientIdEnv && process.env[profile.oauthClientIdEnv]));
+        : Boolean((apiKeyEnv && process.env[apiKeyEnv]) || credentialPool.ready || (profile.oauthClientIdEnv && process.env[profile.oauthClientIdEnv]));
       const status = configured ? "available" : "unavailable";
       return {
         ...profile,
+        credentialPool,
+        discoveredModels,
         configured,
         status,
         availabilityReason: configured
