@@ -260,3 +260,140 @@ The Models dashboard includes an authenticated **Custom authorized endpoint** fl
 Run **Auto-detect contract** first. If the result is usable, **Save provider** stores the endpoint as a `custom` provider, routes it through the existing OpenAI-compatible adapter, and stores the supplied API key only in the encrypted credential pool. If detection is inconclusive, the operator can still provide an explicit documented request/response contract and save a manual OpenAI-compatible custom provider. The detector never claims that an undocumented `/v0` or web form endpoint is an API merely because a browser observed it.
 
 The custom provider is exposed through the gateway's normal `/v1/models` and `/v1/chat/completions` routes, subject to gateway API-key scopes, provider health, and configured model allowlists. The implementation intentionally excludes third-party MITM interception, cookie/session-to-API conversion, password scraping, hidden endpoint discovery, and arbitrary browser automation.
+
+## Qwen / Alibaba ModelStudio
+
+Qwen is integrated through the official OpenAI-compatible Alibaba ModelStudio API boundary. The adapter supports standard API keys and Coding Plan API keys, native tools when the selected model supports them, inline vision for vision-capable Qwen models, bounded model-catalog refresh, usage accounting, and the existing client-managed tool fallback.
+
+```bash
+# Standard API key, international region
+export DASHSCOPE_API_KEY='provider-issued-secret'
+export GATEWAY_QWEN_REGION='intl'
+export GATEWAY_QWEN_PLAN='standard'
+export GATEWAY_QWEN_MODELS='qwen3.7-plus,qwen3.5-plus,qwen3-vl-plus'
+export GATEWAY_QWEN_DEFAULT_MODEL='qwen3.7-plus'
+
+# Or Coding Plan API key
+export DASHSCOPE_API_KEY='sk-sp-provider-issued-secret'
+export GATEWAY_QWEN_REGION='intl'
+export GATEWAY_QWEN_PLAN='coding-plan'
+export GATEWAY_QWEN_MODELS='qwen3-coder-plus,qwen3.5-plus'
+export GATEWAY_QWEN_DEFAULT_MODEL='qwen3-coder-plus'
+
+npm run gateway:refresh-models
+```
+
+The standard endpoint defaults are `https://dashscope.aliyuncs.com/compatible-mode/v1` for Beijing and `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` for the international region. Coding Plan defaults are `https://coding.dashscope.aliyuncs.com/v1` for Beijing and `https://coding-intl.dashscope.aliyuncs.com/v1` for the international region. Set `GATEWAY_QWEN_BASE_URL` explicitly when the provider documents a different authorized endpoint.
+
+The former Qwen OAuth free tier was discontinued by Qwen on 2026-04-15. The gateway therefore does not offer Qwen browser login, cookie/session storage, browser token extraction, password-based account import, or Qwen Gate-style account rotation. Configure an official API key or Coding Plan key instead. See [`qwen-auth-research.md`](./qwen-auth-research.md) for the source-backed boundary.
+
+The Qwen adapter accepts documented ModelStudio options through `extra_body`, including `enable_thinking`, `thinking_budget`, `incremental_output`, and `result_format`; it does not alter system prompts, claim hidden model identity, or infer a backend model beyond observable API evidence.
+
+
+## Safe provider fallback routing
+
+The gateway supports an explicit `fallbackProviders` list per provider. This is a bounded server-to-server failover mechanism inspired by routing patterns reviewed in [Portkey Gateway](https://github.com/Portkey-AI/gateway) and [OpenProvider](https://github.com/OpenProviderAi/OpenProvider). It tries configured fallback providers only after retryable upstream conditions such as timeouts, rate limits, or 5xx responses. Disabled, expired, unavailable, or uncredentialed providers are skipped; model allowlists and encrypted credential cooldowns remain enforced.
+
+Example:
+
+```json
+[
+  {
+    "id": "qwen",
+    "type": "openai",
+    "adapter": "qwen",
+    "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "apiKeyEnv": "DASHSCOPE_API_KEY",
+    "models": ["qwen3.7-plus"],
+    "defaultModel": "qwen3.7-plus",
+    "fallbackProviders": ["openai", "anthropic"]
+  }
+]
+```
+
+Fallback routing is not account pooling, free-tier bypass, cookie reuse, session scraping, or MITM interception. The gateway never imports browser sessions or private client tokens from reviewed repositories.
+
+The comparative repository survey is recorded in `docs/github-gateway-research.md`. Direct code reuse was intentionally limited because LiteLLM has a non-standard license, OpenProvider is a separate full application, and Portkey is substantially larger than the lightweight runtime target. The current implementation adopts only small, auditable routing concepts with attribution.
+
+
+## QwenGate compatibility review
+
+The exact repository reviewed for the QwenGate comparison is [youssefvdel/qwengate](https://github.com/youssefvdel/qwengate), an MIT-licensed TypeScript/Bun project. Its OpenAI-compatible API shape, streaming conventions, bounded tool-call conversion, content-artifact filtering, model-health concepts, and dashboard observability were reviewed as design references.
+
+The current gateway does **not** import QwenGate’s browser-authentication path. QwenGate’s documented architecture uses `chat.qwen.ai` browser automation, email/password account entry, browser-derived session material, session pooling, and multi-account rotation. Those features are outside this project’s Safe Boundary and are not converted into an adapter or compatibility mode. The current Qwen integration remains based on official ModelStudio/DashScope API keys and documented server-to-server endpoints.
+
+Detailed findings and source links are in [`qwengate-research.md`](./qwengate-research.md).
+
+## Xiaomi MiMo authentication
+
+The gateway supports Xiaomi MiMo through the official OpenAI-compatible API using a provider-issued API key. Configure `MIMO_API_KEY` for pay-as-you-go API access, or configure the Token Plan base URL and `tp-...` credential supplied by the MiMo console. The adapter sends MiMo’s documented `api-key` header rather than importing local MiMo Code or Hermes credential files.
+
+```bash
+export MIMO_API_KEY='provider-issued-key'
+export GATEWAY_MIMO_PLAN='standard'
+export GATEWAY_MIMO_MODELS='mimo-v2.5-pro,mimo-v2.5'
+export GATEWAY_MIMO_DEFAULT_MODEL='mimo-v2.5-pro'
+```
+
+For a Token Plan credential, use the dedicated base URL displayed by the MiMo console, for example:
+
+```bash
+export MIMO_API_KEY='tp-provider-issued-key'
+export GATEWAY_MIMO_PLAN='token-plan'
+export GATEWAY_MIMO_BASE_URL='https://token-plan-sgp.xiaomimimo.com/v1'
+```
+
+MiMo Code, Hermes, and similar tools may offer a login flow that ultimately creates or stores a provider credential. The gateway does not import their local OAuth/session state. If a provider login is officially supported, complete it in the provider’s own console and provide the resulting API key through the encrypted gateway credential store. Browser cookies, session tokens, private client headers, and undocumented web-login traffic are not accepted as gateway credentials.
+
+
+## Manus Open App OAuth
+
+The gateway supports the official Manus Open App Authorization Code flow with PKCE. This is an OAuth-only integration for documented Manus API actions, not an OpenAI-compatible model provider. It is not included in `/v1/models` or chat routing.
+
+Configure a Manus Open App client from the official Manus developer console:
+
+```bash
+export MANUS_OAUTH_CLIENT_ID='your-open-app-client-id'
+export MANUS_OAUTH_CLIENT_SECRET='your-open-app-client-secret' # only if your registered client requires it
+export MANUS_OAUTH_REDIRECT_URI='https://your-domain.example/api/gateway/oauth/manus/callback'
+export MANUS_OAUTH_SCOPES='create_task'
+```
+
+Start authorization through the authenticated dashboard OAuth action for the `manus` provider. The gateway generates a state value and S256 PKCE challenge, validates callback state, exchanges the authorization code at `https://api.manus.ai/oauth/token`, and stores the returned access token plus refresh token encrypted with `GATEWAY_CREDENTIAL_MASTER_KEY`. Token values are never returned in dashboard metadata. Manus Open Apps are team-scoped and require the scopes configured by the registered application.
+
+Manus connector cookies, browser sessions, or local web-app authentication state are not imported. MiMo CLI, Hermes, Qwen CLI, and other local tool credential files are also not imported; use provider-issued API keys or each provider's documented OAuth client configuration instead.
+
+## Model authenticity and anti-spoofing audit
+
+The authenticated audit route supports bounded black-box evidence checks for an authorized provider endpoint. It records aggregate TTFT, upstream latency, advertised-versus-reported model evidence, deterministic canary outcomes, prompt-leak indicators, transport markers, and optional graduated context probes. Raw prompts and raw responses are not retained in the audit record.
+
+Use the dashboard's **Run audit** action to select a canary budget and an optional 8k, 32k, or 64k context probe. Larger context tests are deliberately opt-in because they consume provider quota and may trigger plan limits. A failed canary, prompt/system leakage indicator, inconsistent model marker, or implausibly fast TTFT for a premium-model claim can mark a provider as **quarantined** so normal routing stops using it until a subsequent authorized audit clears the condition.
+
+TTFT is an anomaly signal, not a mathematical proof of model identity. Network location, caching, batching, prompt length, streaming implementation, and provider routing can affect latency. Context-window probes similarly show observed acceptance, truncation, or error behavior; they do not prove the hidden backend. Operators should treat the resulting score as evidence for routing and review, not as a cryptographic model attestation.
+
+The audit layer is intended for user-owned or explicitly authorized endpoints. It does not capture browser sessions, cookies, passwords, private client headers, or undocumented third-party login traffic.
+
+
+## Custom endpoint onboarding and prompt templates
+
+Custom endpoint onboarding is **metadata-first**. A normal documented HTTPS endpoint may be checked for OpenAPI and model-catalog evidence, while a URL template such as `http://host:port/path?text=PROMPT_HERE` is recognized without sending traffic. The detector returns `requiresLiveTest: true` and waits for an explicit operator action.
+
+The dashboard provides **Run one live request**, which substitutes the bounded test prompt for `PROMPT_HERE`, `{prompt}`, or `{{prompt}}`, sends one request, and displays only redacted status, latency, response shape, and a short sanitized preview. It does not schedule background traffic, run periodic probes, or claim that a response proves the hidden model identity. Unknown contracts must be configured manually with an explicit request/response mapping.
+
+HTTPS remains the default. HTTP custom endpoints require an explicit per-test/per-provider opt-in and should be limited to an operator-owned or explicitly authorized endpoint. Browser interception, cookie/session import, credential extraction, arbitrary redirects, and hidden endpoint discovery remain disabled.
+
+## OpenCode configuration import
+
+The model dashboard supports **Preview import** and **Import providers + models** for a safe OpenCode configuration export. The importer accepts provider metadata, OpenAI/Anthropic compatibility, HTTPS base URLs, optional prefixes, display names, and model IDs. It deliberately rejects API keys, OAuth tokens, refresh tokens, cookies, passwords, authorization fields, and local session/auth files. Credentials must be entered through the encrypted server-side credential path.
+
+Preview is metadata-only and sends no upstream request. Importing provider metadata also sends no upstream request; live health/model checks occur only through explicit operator actions. HTTP is rejected for remote OpenCode imports; HTTPS is required unless an endpoint is loopback or separately configured as an explicitly authorized custom test.
+
+## VPS egress and client-IP privacy
+
+For a deployed gateway, provider calls are made by the gateway process, so the upstream provider sees the deployment/VPS network egress address at the IP layer—not the end user’s laptop or phone address. The gateway does not copy `X-Forwarded-For`, `X-Real-IP`, `Forwarded`, Cloudflare client-IP headers, or similar client-address headers into outbound provider requests. Tunnel or reverse-proxy access logs may still contain client IPs for local operational logging; they are not sent to model providers by the gateway. Actual egress identity depends on the hosting provider’s NAT, IPv4/IPv6 routing, proxy, or tunnel configuration and should be verified from the deployed environment.
+
+This is a network-path property, not an identity guarantee: a provider can still receive normal TLS, request, account, and region metadata. Do not claim that traffic is physically located in a particular data center unless the VPS provider and route have been independently verified.
+
+## Import status boundary
+
+Provider-issued API-key imports, official OAuth flows, model catalog imports, manual model entries, custom OpenAI/Anthropic endpoints, and safe OpenCode metadata imports are supported. Browser login state, cookies, passwords, local CLI session files, and private client tokens are not import formats. A provider must expose a documented or explicitly authorized API contract before it can be routed as a gateway provider.

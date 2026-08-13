@@ -212,12 +212,27 @@ test("model catalog import validates IDs and supports merge/replace semantics", 
 test("dedicated provider profiles expose safe official and local boundaries", async () => {
   const { DEDICATED_PROVIDER_PROFILES } = await import("../src/lib/gateway/providers/dedicated.js");
   assert.equal(DEDICATED_PROVIDER_PROFILES.qwen.type, "openai");
+  assert.equal(DEDICATED_PROVIDER_PROFILES.qwen.adapter, "qwen");
+  assert.deepEqual(DEDICATED_PROVIDER_PROFILES.qwen.authModes, ["standard-api-key", "coding-plan-api-key"]);
+  assert.equal(DEDICATED_PROVIDER_PROFILES.qwen.oauthStatus, "discontinued-2026-04-15");
+  assert.equal(DEDICATED_PROVIDER_PROFILES.manus.oauthOnly, true);
+  assert.equal(DEDICATED_PROVIDER_PROFILES.manus.oauthPkce, true);
+  assert.equal(DEDICATED_PROVIDER_PROFILES.manus.oauthAuthUrl, "https://manus.im/openapi/oauth");
+  assert.deepEqual(DEDICATED_PROVIDER_PROFILES.manus.oauthScopes, ["create_task"]);
   assert.equal(DEDICATED_PROVIDER_PROFILES.kimi.officialApi, true);
   assert.equal(DEDICATED_PROVIDER_PROFILES.grok.baseUrl, "https://api.x.ai/v1");
   assert.equal(DEDICATED_PROVIDER_PROFILES.gitlab.officialApi, "self-managed-only");
   assert.equal(DEDICATED_PROVIDER_PROFILES.opencode.localOnly, true);
   assert.equal(DEDICATED_PROVIDER_PROFILES.opencode.allowNoAuth, true);
   assert.equal(DEDICATED_PROVIDER_PROFILES.kiro.officialApi, "custom-endpoint-only");
+});
+
+test("Qwen adapter only recognizes official ModelStudio hosts and maps thinking options", async () => {
+  const { __testables: qwen } = await import("../src/lib/gateway/providers/qwen.js");
+  assert.equal(qwen.isOfficialQwenEndpoint("https://coding-intl.dashscope.aliyuncs.com/v1"), true);
+  assert.equal(qwen.isOfficialQwenEndpoint("https://example.com/v1"), false);
+  const body = qwen.qwenBody({ model: "qwen3-max", enable_thinking: true, thinking_budget: 512 });
+  assert.deepEqual(body.extra_body, { enable_thinking: true, thinking_budget: 512 });
 });
 
 test("GitLab adapter formats user-owned messages without retaining credentials", async () => {
@@ -246,4 +261,96 @@ test("OAuth state records expire and are not reusable after pruning", async () =
   const pruned = oauth.pruneStates(states);
   assert.equal(pruned.old, undefined);
   assert.equal(pruned.fresh.providerId, "demo");
+});
+
+
+test("Manus Open App authorization uses PKCE and does not expose secrets", async () => {
+  const { createOAuthAuthorization } = await import("../src/lib/gateway/oauth.js");
+  const result = createOAuthAuthorization({
+    provider: {
+      id: "manus",
+      oauthAuthUrl: "https://manus.im/openapi/oauth",
+      oauthTokenUrl: "https://api.manus.ai/oauth/token",
+      oauthScopes: ["create_task"],
+      oauthPkce: true,
+    },
+    clientId: "manus-test-client",
+    redirectUri: "http://127.0.0.1:2018/api/gateway/oauth/manus/callback",
+  });
+  const url = new URL(result.authorizationUrl);
+  assert.equal(result.pkce, true);
+  assert.equal(url.searchParams.get("code_challenge_method"), "S256");
+  assert.ok(url.searchParams.get("code_challenge"));
+  assert.equal(url.searchParams.get("scope"), "create_task");
+  assert.equal(url.searchParams.has("client_secret"), false);
+});
+
+test("MiMo profile uses official API-key modes and api-key header without importing CLI OAuth state", async () => {
+  const { DEDICATED_PROVIDER_PROFILES } = await import("../src/lib/gateway/providers/dedicated.js");
+  assert.equal(DEDICATED_PROVIDER_PROFILES.mimo.baseUrl, "https://api.xiaomimimo.com/v1");
+  assert.equal(DEDICATED_PROVIDER_PROFILES.mimo.apiKeyHeader, "api-key");
+  assert.deepEqual(DEDICATED_PROVIDER_PROFILES.mimo.authModes, ["standard-api-key", "token-plan-api-key"]);
+  assert.equal(DEDICATED_PROVIDER_PROFILES.mimo.oauthStatus, "official-login-creates-api-key");
+
+  const server = http.createServer((request, response) => {
+    assert.equal(request.headers["api-key"], "mimo-test-key");
+    assert.equal(request.headers.authorization, undefined);
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({
+      id: "mimo-test",
+      object: "chat.completion",
+      model: "mimo-v2.5-pro",
+      choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }));
+  });
+  await new Promise((resolve) => server.listen({ port: 0, host: "127.0.0.1" }, resolve));
+  try {
+    const { executeOpenAi } = await import("../src/lib/gateway/providers/openai.js");
+    const result = await executeOpenAi({
+      provider: { id: "mimo", baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKeyHeader: "api-key", headers: {} },
+      apiKey: "mimo-test-key",
+      body: { stream: false },
+      model: "mimo-v2.5-pro",
+      messages: [{ role: "user", content: "hello" }],
+      tools: [],
+    });
+    assert.equal(result.completion.choices[0].message.content, "ok");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("authenticity scoring flags failed canaries and implausibly fast premium-model TTFT", () => {
+  const result = audit.scoreAuthenticity({
+    advertisedModel: "claude-opus",
+    identity: { verdict: "consistent" },
+    leakage: { findings: [] },
+    result: {
+      probes: [
+        { id: "sentinel", expected: "GATEWAY_AUDIT_OK", ttftMs: 120, data: { choices: [{ message: { content: "wrong" } }] } },
+        { id: "count_r", expected: "3", data: { choices: [{ message: { content: "2" } }] } },
+      ],
+    },
+  });
+  assert.equal(result.status, "quarantined");
+  assert.equal(result.failedCanaries, 2);
+  assert.equal(result.ttftMs, 120);
+});
+
+test("authenticity scoring keeps bounded context probes as evidence, not proof", () => {
+  const result = audit.scoreAuthenticity({
+    advertisedModel: "qwen3.7-plus",
+    identity: { verdict: "consistent" },
+    leakage: { findings: [] },
+    result: {
+      probes: [
+        { id: "sentinel", expected: "GATEWAY_AUDIT_OK", ttftMs: 900, data: { choices: [{ message: { content: "GATEWAY_AUDIT_OK" } }] } },
+        { id: "context_32000", expected: "CONTEXT_OK", contextChars: 32000, data: { choices: [{ message: { content: "CONTEXT_OK" } }] } },
+      ],
+    },
+  });
+  assert.equal(result.status, "provisionally_consistent");
+  assert.equal(result.failedContexts, 0);
+  assert.match(result.limitation, /cannot mathematically prove/i);
 });

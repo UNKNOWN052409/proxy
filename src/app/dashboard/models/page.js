@@ -47,8 +47,18 @@ export default function ModelsPage() {
   const [customApiKey, setCustomApiKey] = useState("");
   const [customProviderId, setCustomProviderId] = useState("");
   const [customLabel, setCustomLabel] = useState("");
+  const [customType, setCustomType] = useState("openai");
+  const [customPrefix, setCustomPrefix] = useState("");
+  const [customModelsText, setCustomModelsText] = useState("");
   const [detectingCustom, setDetectingCustom] = useState(false);
   const [customResult, setCustomResult] = useState(null);
+  const [customPrompt, setCustomPrompt] = useState("Reply with exactly: gateway-test-ok");
+  const [customMethod, setCustomMethod] = useState("GET");
+  const [allowInsecureHttp, setAllowInsecureHttp] = useState(false);
+  const [testingCustom, setTestingCustom] = useState(false);
+  const [opencodeConfigText, setOpencodeConfigText] = useState('{\n  "providers": [{\n    "id": "my-opencode-provider",\n    "name": "My OpenCode Provider",\n    "type": "openai",\n    "baseUrl": "https://api.example.com/v1",\n    "prefix": "oc",\n    "models": ["my-model"]\n  }]\n}');
+  const [opencodePreview, setOpencodePreview] = useState(null);
+  const [opencodeBusy, setOpencodeBusy] = useState(false);
 
   useEffect(() => {
     fetchModels();
@@ -129,12 +139,15 @@ export default function ModelsPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "detect_custom", baseUrl: customBaseUrl, apiKey: customApiKey }),
+        body: JSON.stringify({ action: "detect_custom", baseUrl: customBaseUrl, apiKey: customApiKey, allowInsecureHttp }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Detection failed");
       setCustomResult(data.detection || data);
-      if (!customProviderId) setCustomProviderId((data.detection?.detectedType || "custom").replace(/[^a-z0-9_-]/gi, "-").toLowerCase());
+      const detected = data.detection || data;
+      if (["openai", "anthropic"].includes(detected.detectedType)) setCustomType(detected.detectedType);
+      if (Array.isArray(detected.models) && detected.models.length && !customModelsText.trim()) setCustomModelsText(detected.models.join("\n"));
+      if (!customProviderId) setCustomProviderId((detected.detectedType || "custom").replace(/[^a-z0-9_-]/gi, "-").toLowerCase());
     } catch (error) {
       setCustomResult({ error: error.message || "Detection failed" });
     } finally {
@@ -142,14 +155,44 @@ export default function ModelsPage() {
     }
   };
 
-  const saveCustom = async () => {
-    setDetectingCustom(true);
+  const testCustom = async () => {
+    setTestingCustom(true);
     try {
       const res = await fetch("/api/gateway/providers", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save_custom", providerId: customProviderId, label: customLabel, baseUrl: customBaseUrl, apiKey: customApiKey, models: customResult?.models || [] }),
+        body: JSON.stringify({ action: "test_custom", baseUrl: customBaseUrl, apiKey: customApiKey, prompt: customPrompt, method: customMethod, allowInsecureHttp }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setCustomResult({ ...(customResult || {}), ...(data.test || {}), liveTest: data.test, error: res.ok ? null : (data.error || data.test?.error || "Live test failed") });
+    } catch (error) {
+      setCustomResult({ ...(customResult || {}), error: error.message || "Live test failed" });
+    } finally {
+      setTestingCustom(false);
+    }
+  };
+
+  const parseCustomModels = () => {
+    const text = customModelsText.trim();
+    if (!text) return customResult?.models || [];
+    if (text.startsWith("[")) {
+      const parsed = JSON.parse(text);
+      if (!Array.isArray(parsed)) throw new Error("Manual model import must be an array");
+      return parsed;
+    }
+    return text.split(/[\\r\\n,]+/).map((model) => model.trim()).filter(Boolean);
+  };
+
+  const saveCustom = async () => {
+    setDetectingCustom(true);
+    try {
+      const models = parseCustomModels();
+      const res = await fetch("/api/gateway/providers", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save_custom", providerId: customProviderId, label: customLabel, prefix: customPrefix, providerType: customType, baseUrl: customBaseUrl, apiKey: customApiKey, models, allowInsecureHttp }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Custom provider save failed");
@@ -160,6 +203,28 @@ export default function ModelsPage() {
       setCustomResult({ ...(customResult || {}), error: error.message || "Custom provider save failed" });
     } finally {
       setDetectingCustom(false);
+    }
+  };
+
+  const importOpenCodeConfig = async (previewOnly = true) => {
+    setOpencodeBusy(true);
+    try {
+      const config = JSON.parse(opencodeConfigText);
+      const action = previewOnly ? "preview_opencode_import" : "import_opencode_config";
+      const res = await fetch("/api/gateway/providers", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, config }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "OpenCode import failed");
+      setOpencodePreview({ ok: true, ...(previewOnly ? { providers: data.providers } : { providers: data.preview, imported: data.results }) });
+      if (!previewOnly) { await fetchModels(); await fetchGatewayProviders(); }
+    } catch (error) {
+      setOpencodePreview({ ok: false, error: error.message || "OpenCode import failed" });
+    } finally {
+      setOpencodeBusy(false);
     }
   };
 
@@ -242,23 +307,52 @@ export default function ModelsPage() {
       <Card>
         <div className="flex items-start justify-between gap-4 mb-3">
           <div>
+            <h2 className="text-sm font-semibold text-text-main">Import OpenCode configuration</h2>
+            <p className="text-xs text-text-muted mt-1">Import safe provider metadata, base URLs, prefixes, and model IDs from an OpenCode export. Preview sends no upstream traffic. Do not paste auth.json, OAuth tokens, cookies, or session files.</p>
+          </div>
+          <span className="material-symbols-outlined text-orange-400">integration_instructions</span>
+        </div>
+        <textarea value={opencodeConfigText} onChange={(e) => setOpencodeConfigText(e.target.value)} rows={7} className="w-full rounded-xl bg-surface border border-border text-text-main text-xs p-3 font-mono" />
+        <div className="flex flex-wrap items-center gap-3 mt-3">
+          <button onClick={() => importOpenCodeConfig(true)} disabled={opencodeBusy || !opencodeConfigText.trim()} className="h-9 px-4 rounded-lg bg-orange-500/15 text-orange-300 border border-orange-500/30 text-sm font-medium disabled:opacity-50">{opencodeBusy ? "Checking..." : "Preview import"}</button>
+          <button onClick={() => importOpenCodeConfig(false)} disabled={opencodeBusy || !opencodeConfigText.trim()} className="h-9 px-4 rounded-lg bg-surface-2 text-text-main border border-border text-sm font-medium disabled:opacity-50">Import providers + models</button>
+          {opencodePreview?.error && <span className="text-xs text-red-300">{opencodePreview.error}</span>}
+          {opencodePreview?.providers && <span className="text-xs text-text-muted">{opencodePreview.providers.length} provider(s) validated{opencodePreview.imported ? " and imported" : ""}.</span>}
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div>
             <h2 className="text-sm font-semibold text-text-main">Custom authorized endpoint</h2>
-            <p className="text-xs text-text-muted mt-1">Enter a documented HTTPS/loopback API URL. We check OpenAPI, standard model catalogs, and safe auth evidence. No browser interception or cookie import.</p>
+            <p className="text-xs text-text-muted mt-1">Metadata-first onboarding for documented APIs and prompt templates. No request is sent for template URLs until you explicitly run one test; no browser interception or cookie import.</p>
           </div>
           <span className="material-symbols-outlined text-brand-400">link</span>
         </div>
         <div className="grid md:grid-cols-2 gap-3">
-          <input value={customBaseUrl} onChange={(e) => setCustomBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm" />
-          <input value={customProviderId} onChange={(e) => setCustomProviderId(e.target.value)} placeholder="provider id, e.g. arena-v0" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm" />
-          <input value={customLabel} onChange={(e) => setCustomLabel(e.target.value)} placeholder="Display label (optional)" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm" />
+          <input value={customBaseUrl} onChange={(e) => setCustomBaseUrl(e.target.value)} placeholder="https://api.example.com/v1 or http://host:port/path?text=PROMPT_HERE" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm md:col-span-2" />
+          <select value={customType} onChange={(e) => setCustomType(e.target.value)} className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm"><option value="openai">OpenAI-compatible</option><option value="anthropic">Anthropic-compatible</option></select>
+          <input value={customProviderId} onChange={(e) => setCustomProviderId(e.target.value)} placeholder="Provider ID, e.g. my-api" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm" />
+          <input value={customLabel} onChange={(e) => setCustomLabel(e.target.value)} placeholder="Display name (anything you like)" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm" />
+          <input value={customPrefix} onChange={(e) => setCustomPrefix(e.target.value)} placeholder="Optional model prefix, e.g. team" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm" />
           <input type="password" value={customApiKey} onChange={(e) => setCustomApiKey(e.target.value)} placeholder="Authorized API key (not persisted by detection)" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm" />
+        </div>
+        <div className="grid md:grid-cols-2 gap-3 mt-3">
+          <textarea value={customModelsText} onChange={(e) => setCustomModelsText(e.target.value)} placeholder={'Model IDs to import manually, one per line, or JSON: [{"id":"model-1","contextWindow":128000,"supportsTools":true}]'} rows={2} className="w-full rounded-xl bg-surface border border-border text-text-main text-sm p-3 md:col-span-2" />
+          <input value={customPrompt} onChange={(e) => setCustomPrompt(e.target.value)} placeholder="Prompt used only for your explicit one-request test" className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm" />
+          <select value={customMethod} onChange={(e) => setCustomMethod(e.target.value)} className="h-10 px-3 rounded-xl bg-surface border border-border text-text-main text-sm"><option>GET</option><option>POST</option></select>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 mt-3">
+          <label className="flex items-center gap-2 text-xs text-text-muted"><input type="checkbox" checked={allowInsecureHttp} onChange={(e) => setAllowInsecureHttp(e.target.checked)} /> Allow HTTP for this explicitly authorized test</label>
         </div>
         <div className="flex flex-wrap items-center gap-3 mt-3">
           <button onClick={detectCustom} disabled={detectingCustom || !customBaseUrl.trim()} className="h-9 px-4 rounded-lg bg-brand-500 text-white text-sm font-medium disabled:opacity-50">{detectingCustom ? "Detecting..." : "Auto-detect contract"}</button>
-          <button onClick={saveCustom} disabled={detectingCustom || !customBaseUrl.trim() || !customProviderId.trim() || !customApiKey.trim()} className="h-9 px-4 rounded-lg bg-surface-2 text-text-main border border-border text-sm font-medium disabled:opacity-50">Save provider</button>
+          <button onClick={testCustom} disabled={testingCustom || !customBaseUrl.trim()} className="h-9 px-4 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-sm font-medium disabled:opacity-50">{testingCustom ? "Testing..." : "Run one live request"}</button>
+          <button onClick={saveCustom} disabled={detectingCustom || testingCustom || !customBaseUrl.trim() || !customProviderId.trim() || !customApiKey.trim()} className="h-9 px-4 rounded-lg bg-surface-2 text-text-main border border-border text-sm font-medium disabled:opacity-50">Save provider + models</button>
           {customResult && <span className="text-xs text-text-muted">{customResult.error || (customResult.saved ? `Saved ${customResult.providerId}` : `${customResult.detectedType || "unknown"} detected; ${customResult.models?.length || 0} model(s); ${customResult.evidence?.length || 0} evidence item(s)`)}</span>}
         </div>
-        {customResult && !customResult.error && <p className="text-[11px] text-text-subtle mt-2">If detection is unknown, configure this as a manual custom OpenAI-compatible adapter using the returned base URL and explicit request/response contract. The detector never claims hidden endpoints.</p>}
+        {customResult && !customResult.error && <p className="text-[11px] text-text-subtle mt-2">{customResult.detectedType === "prompt-template" ? "Prompt template recognized. Detection sent no traffic. Use Run one live request only after confirming authorization; the result is a compatibility signal, not model identity proof." : "If detection is unknown, configure this as a manual custom OpenAI-compatible adapter using the returned base URL and explicit request/response contract. The detector never claims hidden endpoints."}</p>}
+        {customResult?.liveTest && <div className="mt-2 text-[11px] text-text-muted">Live test: HTTP {customResult.liveTest.status || "—"}, {customResult.liveTest.latencyMs || "—"} ms, {customResult.liveTest.responseShape?.join(", ") || customResult.liveTest.responsePreview || customResult.liveTest.error || "no response body retained"}.</div>}
       </Card>
 
       {/* Search + Filter + Refresh */}

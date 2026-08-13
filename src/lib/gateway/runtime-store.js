@@ -2,10 +2,10 @@ import { userConfig } from "../config/store.js";
 
 const STATE_KEY = "gatewayRuntime";
 const PROVIDER_FIELDS = new Set([
-  "id", "label", "type", "baseUrl", "apiKeyEnv", "models", "defaultModel",
+  "id", "label", "type", "prefix", "baseUrl", "apiKeyEnv", "models", "defaultModel",
   "supportsTools", "supportsVision", "visionProvider", "headers", "enabled", "expiresAt",
   "adapter", "logoPath", "docsUrl", "officialApi", "region", "accessKeyEnv", "secretKeyEnv", "sessionTokenEnv",
-  "routingPriority", "fallbackProviders", "costInputPerMillion", "costOutputPerMillion", "contextWindow",
+  "routingPriority", "fallbackProviders", "costInputPerMillion", "costOutputPerMillion", "contextWindow", "insecureHttp",
   "oauthAuthUrl", "oauthTokenUrl", "oauthClientIdEnv", "oauthClientSecretEnv", "oauthScopes", "oauthRedirectUri",
 ]);
 const FORBIDDEN_FIELDS = new Set([
@@ -217,6 +217,7 @@ export function saveProviderAudit(providerId, audit) {
     modelListStatus: audit.modelListStatus || null,
     probeStatus: audit.probeStatus || null,
     identity: audit.identity || { verdict: "unknown", confidence: 0.1, evidence: [] },
+    authenticity: audit.authenticity || { score: 0.1, status: "unknown", checks: [], limitation: "Black-box probes cannot prove hidden model identity." },
     leakage: audit.leakage || { passed: true, findings: [], storedContent: false },
     probeTokenMatched: Boolean(audit.probeTokenMatched),
     upstreamLatencyMs: Number.isFinite(audit.upstreamLatencyMs) ? audit.upstreamLatencyMs : null,
@@ -228,8 +229,31 @@ export function saveProviderAudit(providerId, audit) {
     error: audit.error ? String(audit.error).slice(0, 300) : null,
     storedResponse: false,
   });
+  if (state.audits[id].authenticity?.status === "quarantined") {
+    state.health[id] = {
+      ...(state.health[id] || {}),
+      status: "quarantined",
+      checkedAt: new Date().toISOString(),
+      message: String(state.audits[id].authenticity.quarantineReason || "Provider failed authenticity validation").slice(0, 500),
+    };
+  }
   writeState(state);
   return clone(state.audits[id]);
+}
+
+export function isProviderQuarantined(providerId) {
+  const id = normalizeId(providerId);
+  const state = readState();
+  return state.health[id]?.status === "quarantined" || state.audits[id]?.authenticity?.status === "quarantined";
+}
+
+export function clearProviderQuarantine(providerId) {
+  const id = normalizeId(providerId);
+  const state = readState();
+  if (state.health[id]?.status === "quarantined") state.health[id] = { ...state.health[id], status: "unknown", message: "Quarantine cleared; run a fresh health/authenticity audit before production routing." };
+  if (state.audits[id]?.authenticity?.status === "quarantined") state.audits[id].authenticity = { ...state.audits[id].authenticity, status: "unknown", quarantineReason: null };
+  writeState(state);
+  return clone(state.audits[id] || null);
 }
 
 export function getProviderAudit(providerId) {
@@ -249,7 +273,9 @@ export function getGatewayNotifications() {
       notifications.push({ id: `provider-expiring-${id}`, severity: "warning", providerId: id, message: `${provider.label || id} credentials expire within 72 hours` });
     }
     const health = state.health[id];
-    if (health?.status === "authentication_error") {
+    if (health?.status === "quarantined") {
+      notifications.push({ id: `provider-quarantined-${id}`, severity: "error", providerId: id, message: `${provider.label || id} is quarantined after an authenticity anomaly; run a fresh audit after review` });
+    } else if (health?.status === "authentication_error") {
       notifications.push({ id: `provider-auth-${id}`, severity: "error", providerId: id, message: `${provider.label || id} rejected its configured API credential` });
     }
   }

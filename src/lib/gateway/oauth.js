@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { importEncryptedCredentials } from "./credentials.js";
+import { importEncryptedCredentials, selectCredential, updateCredentialTokens } from "./credentials.js";
 
 const STATE_PATH = path.join(process.cwd(), "data", "gateway-oauth-state.json");
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -29,11 +29,13 @@ function pruneStates(states) {
   return states;
 }
 
-export function createOAuthAuthorization({ provider, clientId, redirectUri }) {
+export function createOAuthAuthorization({ provider, clientId, redirectUri, usePkce = provider.oauthPkce === true }) {
   if (!provider.oauthAuthUrl || !provider.oauthTokenUrl || !clientId) throw new Error(`Provider ${provider.id} does not have complete OAuth metadata`);
   const state = crypto.randomBytes(24).toString("base64url");
+  const codeVerifier = usePkce ? crypto.randomBytes(48).toString("base64url") : null;
+  const codeChallenge = codeVerifier ? crypto.createHash("sha256").update(codeVerifier).digest("base64url") : null;
   const states = pruneStates(readStates());
-  states[state] = { providerId: provider.id, createdAt: new Date().toISOString() };
+  states[state] = { providerId: provider.id, createdAt: new Date().toISOString(), codeVerifier };
   writeStates(states);
   const url = new URL(provider.oauthAuthUrl);
   url.searchParams.set("response_type", "code");
@@ -41,7 +43,11 @@ export function createOAuthAuthorization({ provider, clientId, redirectUri }) {
   url.searchParams.set("redirect_uri", redirectUri || provider.oauthRedirectUri || "");
   if (provider.oauthScopes?.length) url.searchParams.set("scope", provider.oauthScopes.join(" "));
   url.searchParams.set("state", state);
-  return { state, authorizationUrl: url.toString() };
+  if (codeChallenge) {
+    url.searchParams.set("code_challenge", codeChallenge);
+    url.searchParams.set("code_challenge_method", "S256");
+  }
+  return { state, authorizationUrl: url.toString(), pkce: Boolean(codeVerifier) };
 }
 
 export async function exchangeOAuthCode({ provider, code, state, clientId, clientSecret, redirectUri }) {
@@ -53,14 +59,31 @@ export async function exchangeOAuthCode({ provider, code, state, clientId, clien
   if (!provider.oauthTokenUrl || !clientId) throw new Error(`Provider ${provider.id} does not have complete OAuth token metadata`);
   const params = new URLSearchParams({ grant_type: "authorization_code", code, client_id: clientId, redirect_uri: redirectUri || provider.oauthRedirectUri || "" });
   if (clientSecret) params.set("client_secret", clientSecret);
+  if (record.codeVerifier) params.set("code_verifier", record.codeVerifier);
   const response = await fetch(provider.oauthTokenUrl, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: params.toString() });
   const text = await response.text();
   let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = null; }
   if (!response.ok || !data?.access_token) throw new Error(data?.error_description || data?.error || `OAuth token exchange failed with HTTP ${response.status}`);
   const expiresAt = data.expires_in ? new Date(Date.now() + Number(data.expires_in) * 1000).toISOString() : null;
-  const imported = importEncryptedCredentials(provider.id, [{ apiKey: data.access_token, label: "oauth-access-token", expiresAt }]);
+  const imported = importEncryptedCredentials(provider.id, [{ apiKey: data.access_token, refreshToken: data.refresh_token || undefined, label: "oauth-access-token", expiresAt }]);
   return { imported, tokenType: data.token_type || "Bearer", expiresAt, hasRefreshToken: Boolean(data.refresh_token) };
+}
+
+export async function refreshOAuthCredential({ provider, clientId, clientSecret }) {
+  if (!provider.oauthTokenUrl || !clientId) throw new Error(`Provider ${provider.id} does not have complete OAuth token metadata`);
+  const selected = selectCredential(provider.id);
+  if (!selected?.refreshToken) throw new Error(`Provider ${provider.id} has no encrypted OAuth refresh token`);
+  const params = new URLSearchParams({ grant_type: "refresh_token", refresh_token: selected.refreshToken, client_id: clientId });
+  if (clientSecret) params.set("client_secret", clientSecret);
+  const response = await fetch(provider.oauthTokenUrl, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: params.toString() });
+  const text = await response.text();
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+  if (!response.ok || !data?.access_token) throw new Error(data?.error_description || data?.error || `OAuth token refresh failed with HTTP ${response.status}`);
+  const expiresAt = data.expires_in ? new Date(Date.now() + Number(data.expires_in) * 1000).toISOString() : selected.expiresAt;
+  updateCredentialTokens(provider.id, selected.credentialId, { apiKey: data.access_token, refreshToken: data.refresh_token || selected.refreshToken, expiresAt });
+  return { credentialId: selected.credentialId, tokenType: data.token_type || "Bearer", expiresAt };
 }
 
 export const __testables = { pruneStates, STATE_PATH };

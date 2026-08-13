@@ -1,8 +1,8 @@
-import { getGatewayNotifications, getGatewayRuntimeState, getProviderModels, getProviderSettings } from "./runtime-store.js";
+import { getGatewayNotifications, getGatewayRuntimeState, getProviderModels, getProviderSettings, isProviderQuarantined } from "./runtime-store.js";
 import { getCredentialPoolStatus, markCredentialResult, selectCredential } from "./credentials.js";
 import { getDedicatedProviderProfile, listDedicatedProviderProfiles } from "./providers/dedicated.js";
 
-const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "GITLAB_", "LOVABLE_", "KIRO_"];
+const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "MIMO_", "XIAOMI_", "GITLAB_", "LOVABLE_", "KIRO_"];
 const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic", "gitlab", "bedrock", "custom"]);
 
 function splitModels(value) {
@@ -17,7 +17,7 @@ function isLoopbackHost(hostname) {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
-function normalizeBaseUrl(value, id) {
+function normalizeBaseUrl(value, id, { allowInsecureHttp = false } = {}) {
   if (!value || typeof value !== "string") throw new Error(`Provider ${id} must define a baseUrl`);
   let parsed;
   try {
@@ -26,7 +26,8 @@ function normalizeBaseUrl(value, id) {
     throw new Error(`Provider ${id} has an invalid baseUrl`);
   }
   const isLocalDevelopmentUrl = parsed.protocol === "http:" && isLoopbackHost(parsed.hostname);
-  if (parsed.protocol !== "https:" && !isLocalDevelopmentUrl) {
+  const isExplicitCustomHttp = parsed.protocol === "http:" && allowInsecureHttp;
+  if (parsed.protocol !== "https:" && !isLocalDevelopmentUrl && !isExplicitCustomHttp) {
     throw new Error(`Provider ${id} baseUrl must use HTTPS (HTTP is limited to loopback development endpoints)`);
   }
   return parsed.toString().replace(/\/$/, "");
@@ -55,6 +56,7 @@ function normalizeProvider(provider) {
   const id = String(provider.id || "").trim().toLowerCase();
   const profile = getDedicatedProviderProfile(id);
   const type = String(provider.type || profile?.type || "openai").trim().toLowerCase();
+  const prefix = String(provider.prefix || "").trim().replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 64);
   const apiKeyEnv = String(provider.apiKeyEnv || profile?.apiKeyEnv || "").trim();
   const region = String(provider.region || profile?.region || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "").trim();
   const accessKeyEnv = String(provider.accessKeyEnv || profile?.accessKeyEnv || "AWS_ACCESS_KEY_ID").trim();
@@ -73,19 +75,24 @@ function normalizeProvider(provider) {
   }
 
   const persistedCatalog = getProviderModels(id);
+  const insecureHttp = type === "custom" && provider.insecureHttp === true;
   const configuredModels = splitModels(provider.models);
   const models = configuredModels.length ? configuredModels : (persistedCatalog?.models || []);
   return {
     id,
-    label: String(provider.label || id),
+    label: String(provider.label || id).trim().slice(0, 120),
     type,
-    baseUrl: normalizeBaseUrl(provider.baseUrl || profile?.baseUrl || (type === "bedrock" ? `https://bedrock-runtime.${region}.amazonaws.com` : null), id),
+    prefix: prefix || null,
+    baseUrl: normalizeBaseUrl(provider.baseUrl || profile?.baseUrl || (type === "bedrock" ? `https://bedrock-runtime.${region}.amazonaws.com` : null), id, { allowInsecureHttp: insecureHttp }),
     apiKeyEnv: apiKeyEnv || null,
+    insecureHttp,
     allowNoAuth,
     adapter: String(provider.adapter || profile?.adapter || type).trim().toLowerCase(),
     logoPath: provider.logoPath || profile?.logoPath || null,
     docsUrl: provider.docsUrl || profile?.docsUrl || null,
     officialApi: provider.officialApi || profile?.officialApi || false,
+    authModes: Array.isArray(provider.authModes || profile?.authModes) ? [...(provider.authModes || profile?.authModes)].map((mode) => String(mode).trim()).filter(Boolean).slice(0, 10) : [],
+    oauthStatus: provider.oauthStatus || profile?.oauthStatus || null,
     credentialPool,
     models,
     defaultModel: String(provider.defaultModel || models[0] || "").trim(),
@@ -93,6 +100,7 @@ function normalizeProvider(provider) {
     supportsVision: provider.supportsVision === true || profile?.supportsVision === true,
     visionProvider: provider.visionProvider ? String(provider.visionProvider).trim().toLowerCase() : null,
     headers: normalizeHeaders(provider.headers),
+    apiKeyHeader: String(provider.apiKeyHeader || profile?.apiKeyHeader || "authorization").trim().toLowerCase(),
     enabled: provider.enabled !== false,
     expiresAt: normalizeExpiry(provider.expiresAt, id),
     region: region || null,
@@ -110,6 +118,8 @@ function normalizeProvider(provider) {
     oauthClientSecretEnv: provider.oauthClientSecretEnv ? String(provider.oauthClientSecretEnv).trim() : null,
     oauthScopes: Array.isArray(provider.oauthScopes) ? provider.oauthScopes.map((scope) => String(scope).trim()).filter(Boolean).slice(0, 30) : [],
     oauthRedirectUri: provider.oauthRedirectUri ? String(provider.oauthRedirectUri).trim().slice(0, 512) : null,
+    oauthPkce: provider.oauthPkce === true || profile?.oauthPkce === true,
+    oauthOnly: provider.oauthOnly === true || profile?.oauthOnly === true,
   };
 }
 
@@ -154,21 +164,48 @@ function environmentProviders() {
       defaultModel: process.env.GATEWAY_BEDROCK_DEFAULT_MODEL || profile.models[0],
     });
   }
+  const qwenApiKeyEnv = process.env.GATEWAY_QWEN_API_KEY_ENV || "DASHSCOPE_API_KEY";
+  const qwenPlan = String(process.env.GATEWAY_QWEN_PLAN || "standard").trim().toLowerCase();
+  const qwenRegion = String(process.env.GATEWAY_QWEN_REGION || "intl").trim().toLowerCase();
+  const qwenDefaultBaseUrl = qwenPlan === "coding-plan"
+    ? (qwenRegion === "beijing" ? "https://coding.dashscope.aliyuncs.com/v1" : "https://coding-intl.dashscope.aliyuncs.com/v1")
+    : (qwenRegion === "beijing" ? "https://dashscope.aliyuncs.com/compatible-mode/v1" : "https://dashscope-intl.aliyuncs.com/compatible-mode/v1");
+  const mimoPlan = String(process.env.GATEWAY_MIMO_PLAN || "standard").trim().toLowerCase();
+  const mimoDefaultBaseUrl = mimoPlan === "token-plan"
+    ? (process.env.GATEWAY_MIMO_BASE_URL || "https://token-plan-cn.xiaomimimo.com/v1")
+    : "https://api.xiaomimimo.com/v1";
   const profileEnvProviders = [
-    ["qwen", "DASHSCOPE_API_KEY", "GATEWAY_QWEN_BASE_URL", "GATEWAY_QWEN_MODELS"],
-    ["kimi", "MOONSHOT_API_KEY", "GATEWAY_KIMI_BASE_URL", "GATEWAY_KIMI_MODELS"],
-    ["grok", "XAI_API_KEY", "GATEWAY_GROK_BASE_URL", "GATEWAY_GROK_MODELS"],
+    ["qwen", qwenApiKeyEnv, "GATEWAY_QWEN_BASE_URL", "GATEWAY_QWEN_MODELS", qwenDefaultBaseUrl],
+    ["mimo", process.env.GATEWAY_MIMO_API_KEY_ENV || "MIMO_API_KEY", "GATEWAY_MIMO_BASE_URL", "GATEWAY_MIMO_MODELS", mimoDefaultBaseUrl],
+    ["kimi", "MOONSHOT_API_KEY", "GATEWAY_KIMI_BASE_URL", "GATEWAY_KIMI_MODELS", null],
+    ["grok", "XAI_API_KEY", "GATEWAY_GROK_BASE_URL", "GATEWAY_GROK_MODELS", null],
   ];
-  for (const [id, secretEnv, baseUrlEnv, modelsEnv] of profileEnvProviders) {
+  if (qwenApiKeyEnv !== "DASHSCOPE_API_KEY" && !qwenApiKeyEnv.startsWith("GATEWAY_")) {
+    throw new Error("GATEWAY_QWEN_API_KEY_ENV must reference a dedicated gateway secret variable");
+  }
+  for (const [id, secretEnv, baseUrlEnv, modelsEnv, defaultBaseUrl] of profileEnvProviders) {
     if (!process.env[secretEnv]) continue;
     const profile = getDedicatedProviderProfile(id);
     providers.push({
       ...profile,
       id,
-      baseUrl: process.env[baseUrlEnv] || profile.baseUrl,
+      baseUrl: process.env[baseUrlEnv] || defaultBaseUrl || profile.baseUrl,
       apiKeyEnv: secretEnv,
       models: splitModels(process.env[modelsEnv]).length ? splitModels(process.env[modelsEnv]) : profile.models,
       defaultModel: process.env[`GATEWAY_${id.toUpperCase()}_DEFAULT_MODEL`] || profile.models[0],
+      ...(id === "qwen" ? { qwenPlan, qwenRegion } : {}),
+      ...(id === "mimo" ? { mimoPlan } : {}),
+    });
+  }
+  if (process.env.MANUS_OAUTH_CLIENT_ID) {
+    const profile = getDedicatedProviderProfile("manus");
+    providers.push({
+      ...profile,
+      id: "manus",
+      oauthClientIdEnv: "MANUS_OAUTH_CLIENT_ID",
+      oauthClientSecretEnv: process.env.MANUS_OAUTH_CLIENT_SECRET ? "MANUS_OAUTH_CLIENT_SECRET" : null,
+      oauthRedirectUri: process.env.MANUS_OAUTH_REDIRECT_URI || null,
+      oauthScopes: splitModels(process.env.MANUS_OAUTH_SCOPES).length ? splitModels(process.env.MANUS_OAUTH_SCOPES) : profile.oauthScopes,
     });
   }
   if (process.env.GATEWAY_OPENCODE_ENABLED === "true") {
@@ -224,6 +261,7 @@ export function getGatewayStatus() {
       lastModelRefresh: runtime.modelCatalog[provider.id]?.refreshedAt || null,
       catalogModelCount: runtime.modelCatalog[provider.id]?.models?.length || 0,
       audit: runtime.audits[provider.id] || null,
+      quarantined: isProviderQuarantined(provider.id),
     })),
     notifications: getGatewayNotifications(),
     lastRefreshAt: runtime.lastRefreshAt,
@@ -244,7 +282,7 @@ export function getGatewayStatus() {
 }
 
 function enabledProviders() {
-  return getGatewayProviders().filter((provider) => provider.enabled && !isProviderExpired(provider));
+  return getGatewayProviders().filter((provider) => provider.enabled && !provider.oauthOnly && !isProviderExpired(provider) && !isProviderQuarantined(provider.id));
 }
 
 export function resolveProvider(model) {
@@ -255,7 +293,7 @@ export function resolveProvider(model) {
   const explicitId = separatorIndex > 0 ? requested.slice(0, separatorIndex).toLowerCase() : null;
   const explicitModel = separatorIndex > 0 ? requested.slice(separatorIndex + 1) : requested;
   const provider = explicitId
-    ? providers.find((candidate) => candidate.id === explicitId)
+    ? providers.find((candidate) => candidate.id === explicitId || candidate.prefix === explicitId)
     : providers.find((candidate) => candidate.models.includes(requested)) || providers[0];
   if (!provider) throw new Error(`Unknown, disabled, or expired provider: ${explicitId}`);
   const modelId = explicitModel || provider.defaultModel || provider.models[0];
@@ -289,10 +327,10 @@ export function listGatewayModels() {
     const catalog = getProviderModels(provider.id);
     const metadata = catalog?.metadata || {};
     return provider.models.map((model) => ({
-      id: `${provider.id}/${model}`,
+      id: `${provider.prefix || provider.id}/${model}`,
       object: "model",
       created: 0,
-      owned_by: provider.id,
+      owned_by: provider.label || provider.id,
       context_window: metadata[model]?.contextWindow || provider.contextWindow || null,
       pricing: { input_per_million: metadata[model]?.inputCostPerMillion ?? provider.costInputPerMillion, output_per_million: metadata[model]?.outputCostPerMillion ?? provider.costOutputPerMillion },
       routing: { priority: metadata[model]?.routingPriority ?? provider.routingPriority, fallback_providers: provider.fallbackProviders },

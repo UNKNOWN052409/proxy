@@ -3,6 +3,7 @@ import { createChatCompletion, gatewayError } from "../openai.js";
 const FORWARDED_PARAMETERS = [
   "temperature", "top_p", "max_tokens", "max_completion_tokens", "seed", "stop",
   "response_format", "user", "presence_penalty", "frequency_penalty", "logit_bias",
+  "stream_options", "extra_body",
 ];
 
 function endpoint(baseUrl, path) {
@@ -13,7 +14,7 @@ function safeConfiguredHeaders(headers = {}) {
   const result = {};
   for (const [name, value] of Object.entries(headers)) {
     const normalized = name.toLowerCase();
-    if (["authorization", "content-length", "host", "connection"].includes(normalized)) continue;
+    if (["authorization", "content-length", "host", "connection", "x-forwarded-for", "x-real-ip", "forwarded", "cf-connecting-ip", "true-client-ip", "client-ip", "x-client-ip"].includes(normalized)) continue;
     if (typeof value === "string" && value.length <= 2048) result[name] = value;
   }
   return result;
@@ -60,11 +61,12 @@ async function postJson(url, options, timeoutMs = 60_000) {
 
 export async function executeOpenAi({ provider, apiKey, body, model, messages, tools }) {
   const payload = buildPayload({ body, model, messages, tools });
+  const authHeader = provider.apiKeyHeader === "api-key" ? { "api-key": apiKey } : { Authorization: `Bearer ${apiKey}` };
   const data = await postJson(endpoint(provider.baseUrl, "/chat/completions"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
+      ...authHeader,
       ...safeConfiguredHeaders(provider.headers),
     },
     body: JSON.stringify(payload),
@@ -97,9 +99,10 @@ export async function describeImageWithOpenAi({ provider, apiKey, model, image }
       ],
     }],
   };
+  const authHeader = provider.apiKeyHeader === "api-key" ? { "api-key": apiKey } : { Authorization: `Bearer ${apiKey}` };
   const data = await postJson(endpoint(provider.baseUrl, "/chat/completions"), {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, ...safeConfiguredHeaders(provider.headers) },
+    headers: { "Content-Type": "application/json", ...authHeader, ...safeConfiguredHeaders(provider.headers) },
     body: JSON.stringify(payload),
   });
   const description = data.choices?.[0]?.message?.content;

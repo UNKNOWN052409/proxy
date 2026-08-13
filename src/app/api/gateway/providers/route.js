@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getGatewayProviders, getGatewayStatus } from "@/lib/gateway/config";
 import { getGatewayRuntimeState, importProviderModels, mergeProviderConfiguration, restoreGatewayRuntimeState, setProviderEnabled } from "@/lib/gateway/runtime-store";
 import { importEncryptedCredentials, listCredentialMetadata } from "@/lib/gateway/credentials";
-import { detectCustomEndpoint } from "@/lib/gateway/custom-endpoint";
+import { detectCustomEndpoint, testPromptTemplate } from "@/lib/gateway/custom-endpoint";
+import { normalizeOpenCodeImport, describeOpenCodeImport } from "@/lib/gateway/opencode-import";
 
 export const runtime = "nodejs";
 
@@ -26,11 +27,47 @@ export async function POST(request) {
   const action = String(body?.action || "import");
 
   try {
+    if (action === "preview_opencode_import") {
+      const providers = normalizeOpenCodeImport(body.config || body);
+      return NextResponse.json({ ok: true, providers: providers.map(({ id, label, type, baseUrl, prefix, models }) => ({ id, label, type, baseUrl, prefix: prefix || null, modelCount: models.length, models })) });
+    }
+    if (action === "import_opencode_config") {
+      const before = getGatewayRuntimeState();
+      const providers = normalizeOpenCodeImport(body.config || body);
+      const results = mergeProviderConfiguration(providers.map(({ models, ...provider }) => provider));
+      for (const provider of providers) {
+        if (provider.models?.length) importProviderModels(provider.id, provider.models, { replace: body.replace === true });
+      }
+      try {
+        getGatewayProviders();
+      } catch (validationError) {
+        restoreGatewayRuntimeState(before);
+        throw validationError;
+      }
+      return NextResponse.json({ ok: true, results, preview: describeOpenCodeImport(body.config || body), status: getGatewayStatus() }, { status: 201 });
+    }
     if (action === "detect_custom") {
       const baseUrl = String(body.baseUrl || "").trim();
       const apiKey = typeof body.apiKey === "string" ? body.apiKey : undefined;
-      const detection = await detectCustomEndpoint({ baseUrl, apiKey });
+      const detection = await detectCustomEndpoint({
+        baseUrl,
+        apiKey,
+        allowInsecureHttp: body.allowInsecureHttp === true,
+        liveTest: false,
+      });
       return NextResponse.json({ ok: true, detection });
+    }
+    if (action === "test_custom") {
+      const baseUrl = String(body.baseUrl || "").trim();
+      if (!baseUrl) return error("baseUrl is required");
+      const result = await testPromptTemplate({
+        endpointUrl: baseUrl,
+        prompt: typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim().slice(0, 4000) : undefined,
+        apiKey: typeof body.apiKey === "string" ? body.apiKey : undefined,
+        method: body.method,
+        allowInsecureHttp: body.allowInsecureHttp === true,
+      });
+      return NextResponse.json({ ok: result.ok, test: result }, { status: result.ok ? 200 : 502 });
     }
     if (action === "save_custom") {
       const providerId = String(body.providerId || "").trim().toLowerCase();
@@ -39,7 +76,10 @@ export async function POST(request) {
       if (!providerId || !baseUrl || !apiKey) return error("providerId, baseUrl, and an authorized API key are required");
       const before = getGatewayRuntimeState();
       const models = Array.isArray(body.models) ? body.models : [];
-      mergeProviderConfiguration({ providers: [{ id: providerId, label: body.label || providerId, type: "custom", adapter: "openai", baseUrl, models, supportsTools: body.supportsTools === true, supportsVision: body.supportsVision === true }] });
+      const requestedType = String(body.providerType || body.type || "openai").trim().toLowerCase();
+      if (!["openai", "anthropic"].includes(requestedType)) return error("Custom provider type must be openai or anthropic");
+      const prefix = String(body.prefix || "").trim().replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 64);
+      mergeProviderConfiguration({ providers: [{ id: providerId, label: body.label || providerId, prefix: prefix || undefined, type: requestedType, adapter: requestedType, baseUrl, models, insecureHttp: body.allowInsecureHttp === true, supportsTools: body.supportsTools === true, supportsVision: body.supportsVision === true }] });
       importEncryptedCredentials(providerId, [{ label: "custom-endpoint", apiKey }]);
       try {
         getGatewayProviders();

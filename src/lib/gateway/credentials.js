@@ -63,7 +63,9 @@ function normalizeProviderId(value) {
 function normalizeCredential(entry, providerId) {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("Credential entries must be objects");
   const secret = String(entry.apiKey || entry.token || "").trim();
+  const refreshToken = String(entry.refreshToken || "").trim();
   if (!secret || secret.length > 4096 || /[\r\n]/.test(secret)) throw new Error("Each credential must contain one bounded API key or token");
+  if (refreshToken && (refreshToken.length > 4096 || /[\r\n]/.test(refreshToken))) throw new Error("OAuth refresh token is invalid or too large");
   const label = String(entry.label || "credential").trim().slice(0, 120) || "credential";
   const expiresAt = entry.expiresAt ? new Date(entry.expiresAt).toISOString() : null;
   return {
@@ -71,6 +73,7 @@ function normalizeCredential(entry, providerId) {
     providerId,
     label,
     encrypted: encrypt(secret),
+    refreshEncrypted: refreshToken ? encrypt(refreshToken) : null,
     createdAt: new Date().toISOString(),
     expiresAt,
     failureCount: 0,
@@ -111,7 +114,25 @@ export function selectCredential(providerIdValue) {
   selected.lastUsedAt = new Date().toISOString();
   store.credentials[providerId] = store.credentials[providerId].map((entry) => entry.id === selected.id ? selected : entry);
   writeStore(store);
-  return { credentialId: selected.id, apiKey: decrypt(selected.encrypted) };
+  return { credentialId: selected.id, apiKey: decrypt(selected.encrypted), refreshToken: selected.refreshEncrypted ? decrypt(selected.refreshEncrypted) : null, expiresAt: selected.expiresAt || null };
+}
+
+export function updateCredentialTokens(providerIdValue, credentialId, { apiKey, refreshToken, expiresAt } = {}) {
+  const providerId = normalizeProviderId(providerIdValue);
+  const store = readStore();
+  const entries = store.credentials[providerId] || [];
+  store.credentials[providerId] = entries.map((entry) => {
+    if (entry.id !== credentialId) return entry;
+    const next = { ...entry };
+    if (apiKey) next.encrypted = encrypt(String(apiKey).trim());
+    if (refreshToken) next.refreshEncrypted = encrypt(String(refreshToken).trim());
+    if (expiresAt) next.expiresAt = new Date(expiresAt).toISOString();
+    next.failureCount = 0;
+    next.cooldownUntil = null;
+    return next;
+  });
+  writeStore(store);
+  return true;
 }
 
 export function markCredentialResult(providerIdValue, credentialId, success, statusCode = null) {
