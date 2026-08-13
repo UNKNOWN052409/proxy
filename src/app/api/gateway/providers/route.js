@@ -78,9 +78,10 @@ export async function POST(request) {
       const before = getGatewayRuntimeState();
       const models = Array.isArray(body.models) ? body.models : [];
       const requestedType = String(body.providerType || body.type || "openai").trim().toLowerCase();
-      if (!["openai", "anthropic"].includes(requestedType)) return error("Custom provider type must be openai or anthropic");
+      if (!["openai", "anthropic", "custom-path"].includes(requestedType)) return error("Custom provider type must be openai, anthropic, or custom-path");
       const prefix = String(body.prefix || "").trim().replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 64);
-      mergeProviderConfiguration({ providers: [{ id: providerId, label: body.label || providerId, prefix: prefix || undefined, type: requestedType, adapter: requestedType, baseUrl, models, insecureHttp: body.allowInsecureHttp === true, supportsTools: body.supportsTools === true, supportsVision: body.supportsVision === true }] });
+      const normalizedType = requestedType === "custom-path" ? "custom" : requestedType;
+      mergeProviderConfiguration({ providers: [{ id: providerId, label: body.label || providerId, prefix: prefix || undefined, type: normalizedType, adapter: requestedType, baseUrl, models, insecureHttp: body.allowInsecureHttp === true, supportsTools: body.supportsTools === true, supportsVision: body.supportsVision === true }] });
       importEncryptedCredentials(providerId, [{ label: "custom-endpoint", apiKey }]);
       try {
         getGatewayProviders();

@@ -61,7 +61,7 @@ async function postJson(url, options, timeoutMs = Number(process.env.GATEWAY_UPS
 
 export async function executeOpenAi({ provider, apiKey, body, model, messages, tools }) {
   const payload = buildPayload({ body, model, messages, tools });
-  const authHeader = provider.apiKeyHeader === "api-key" ? { "api-key": apiKey } : { Authorization: `Bearer ${apiKey}` };
+  const authHeader = apiKey ? (provider.apiKeyHeader === "api-key" ? { "api-key": apiKey } : { Authorization: `Bearer ${apiKey}` }) : {};
   const data = await postJson(endpoint(provider.baseUrl, "/chat/completions"), {
     method: "POST",
     headers: {
@@ -87,6 +87,33 @@ export async function executeOpenAi({ provider, apiKey, body, model, messages, t
   };
 }
 
+export async function executePathModel({ provider, apiKey, body, model, messages, tools }) {
+  const payload = buildPayload({ body, model, messages, tools });
+  const authHeader = apiKey ? (provider.apiKeyHeader === "api-key" ? { "api-key": apiKey } : { Authorization: `Bearer ${apiKey}` }) : {};
+  const data = await postJson(provider.baseUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(body.idempotency_key || body.idempotencyKey ? { "Idempotency-Key": String(body.idempotency_key || body.idempotencyKey).slice(0, 200) } : {}),
+      ...authHeader,
+      ...safeConfiguredHeaders(provider.headers),
+    },
+    body: JSON.stringify(payload),
+  });
+  const choice = data.choices?.[0];
+  if (!choice?.message) throw gatewayError("Path-style endpoint did not return an assistant message", 502, "upstream_error");
+  return {
+    completion: createChatCompletion({
+      model: `${provider.id}/${model}`,
+      content: choice.message.content ?? null,
+      toolCalls: Array.isArray(choice.message.tool_calls) ? choice.message.tool_calls : [],
+      finishReason: choice.finish_reason || (choice.message.tool_calls?.length ? "tool_calls" : "stop"),
+      usage: data.usage,
+    }),
+    usage: data.usage || null,
+  };
+}
+
 export async function describeImageWithOpenAi({ provider, apiKey, model, image }) {
   const payload = {
     model,
@@ -100,7 +127,7 @@ export async function describeImageWithOpenAi({ provider, apiKey, model, image }
       ],
     }],
   };
-  const authHeader = provider.apiKeyHeader === "api-key" ? { "api-key": apiKey } : { Authorization: `Bearer ${apiKey}` };
+  const authHeader = apiKey ? (provider.apiKeyHeader === "api-key" ? { "api-key": apiKey } : { Authorization: `Bearer ${apiKey}` }) : {};
   const data = await postJson(endpoint(provider.baseUrl, "/chat/completions"), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeader, ...safeConfiguredHeaders(provider.headers) },

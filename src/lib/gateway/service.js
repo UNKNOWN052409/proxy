@@ -3,7 +3,7 @@ import { createChatCompletion, gatewayError, hasImages, messageText } from "./op
 import { buildToolInstruction, normalizeNativeToolCompletion, normalizeNativeToolRequest, parseClientManagedToolResponse } from "./tools.js";
 import { getReliabilityStats, runReliable } from "./reliability.js";
 import { convertImagesToText } from "./vision.js";
-import { executeOpenAi, describeImageWithOpenAi } from "./providers/openai.js";
+import { executeOpenAi, executePathModel, describeImageWithOpenAi } from "./providers/openai.js";
 import { executeAnthropic, describeImageWithAnthropic } from "./providers/anthropic.js";
 import { executeGitLab } from "./providers/gitlab.js";
 import { executeBedrock } from "./providers/bedrock.js";
@@ -11,6 +11,7 @@ import { executeQwen, describeImageWithQwen } from "./providers/qwen.js";
 import { usageStore } from "../usage/store.js";
 
 function executorFor(provider) {
+  if (provider.adapter === "custom-path") return executePathModel;
   if (provider.adapter === "qwen" || provider.id === "qwen") return executeQwen;
   if (provider.adapter === "gitlab" || provider.type === "gitlab") return executeGitLab;
   if (provider.type === "bedrock" || provider.adapter === "bedrock") return executeBedrock;
@@ -20,6 +21,7 @@ function executorFor(provider) {
 }
 
 function visionExecutorFor(provider) {
+  if (provider.adapter === "custom-path") return describeImageWithOpenAi;
   if (provider.adapter === "qwen" || provider.id === "qwen") return describeImageWithQwen;
   if (provider.type === "openai" || provider.type === "custom") return describeImageWithOpenAi;
   if (provider.type === "anthropic") return describeImageWithAnthropic;

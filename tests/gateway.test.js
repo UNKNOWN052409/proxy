@@ -14,6 +14,7 @@ import { __testables as port, listenWithPortFallback } from "../src/lib/runtime/
 import { __testables as credentials } from "../src/lib/gateway/credentials.js";
 import { auditProviderEndpoint, detectLeakage, classifyIdentity, __testables as audit } from "../src/lib/gateway/audit.js";
 import { detectCustomEndpoint, normalizeCustomEndpointUrl } from "../src/lib/gateway/custom-endpoint.js";
+import { executePathModel } from "../src/lib/gateway/providers/openai.js";
 
 const tools = [{
   type: "function",
@@ -44,6 +45,31 @@ test("custom endpoint detection uses documented contracts and redacts sensitive 
   assert.ok(result.evidence.includes("documented_spec:/openapi.json"));
   assert.ok(result.evidence.includes("model_catalog:/v1/models"));
   assert.equal(result.checks.some((check) => check.headers?.authorization), false);
+});
+
+test("path-style custom endpoint extracts a candidate model without probing or claiming identity", async () => {
+  const result = await detectCustomEndpoint({ baseUrl: "https://prexzyapis.com/ai/qwen3-5-397b-a17b" });
+  assert.equal(result.detectedType, "path-model");
+  assert.equal(result.adapter, "custom-path");
+  assert.deepEqual(result.models, ["qwen3-5-397b-a17b"]);
+  assert.equal(result.traffic, "none");
+  assert.equal(result.requiresLiveTest, true);
+});
+
+test("path-style executor posts to the exact endpoint and normalizes OpenAI-shaped output", async () => {
+  const originalFetch = globalThis.fetch;
+  let calledUrl;
+  globalThis.fetch = async (url) => {
+    calledUrl = String(url);
+    return new Response(JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { total_tokens: 2 } }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const result = await executePathModel({ provider: { id: "prexzy", baseUrl: "https://prexzyapis.com/ai/qwen3-5-397b-a17b", apiKeyHeader: "authorization", headers: {} }, apiKey: "authorized-key", body: { temperature: 0 }, model: "qwen3-5-397b-a17b", messages: [{ role: "user", content: "hi" }], tools: [] });
+    assert.equal(calledUrl, "https://prexzyapis.com/ai/qwen3-5-397b-a17b");
+    assert.equal(result.completion.choices[0].message.content, "ok");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("gateway provider config permits HTTPS and loopback HTTP only", () => {

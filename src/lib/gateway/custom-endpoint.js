@@ -1,6 +1,7 @@
 const MODEL_PATHS = ["/v1/models", "/models"];
 const SPEC_PATHS = ["/openapi.json", "/swagger.json", "/v1/openapi.json"];
 const PROMPT_MARKERS = ["PROMPT_HERE", "{prompt}", "{{prompt}}"];
+const PATH_MODEL_PATTERN = /\/ai\/([^/?#]+)\/?$/i;
 const BLOCKED_HEADER_NAMES = new Set([
   "authorization", "cookie", "set-cookie", "x-api-key", "proxy-authorization", "content-length", "host", "connection",
   "x-forwarded-for", "x-real-ip", "forwarded", "cf-connecting-ip", "true-client-ip", "client-ip", "x-client-ip",
@@ -12,6 +13,16 @@ function isLoopback(hostname) {
 
 function hasPromptTemplate(url) {
   return PROMPT_MARKERS.some((marker) => url.includes(marker));
+}
+
+function pathModelId(url) {
+  try {
+    const parsed = new URL(url);
+    const match = parsed.pathname.match(PATH_MODEL_PATTERN);
+    return match ? decodeURIComponent(match[1]).slice(0, 160) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeCustomEndpointUrl(value, { allowInsecureHttp = false } = {}) {
@@ -120,6 +131,7 @@ export async function detectCustomEndpoint({ baseUrl, apiKey, fetchImpl = fetch,
   let detectedType = null;
   let models = [];
   const template = hasPromptTemplate(normalizedBaseUrl);
+  const pathModel = pathModelId(normalizedBaseUrl);
   if (template && !liveTest) {
     return {
       baseUrl: normalizedBaseUrl,
@@ -128,6 +140,20 @@ export async function detectCustomEndpoint({ baseUrl, apiKey, fetchImpl = fetch,
       models: [], checks: [], evidence: ["prompt_template:recognized", "traffic:none"],
       autoConfigured: false, requiresLiveTest: true,
       limitations: ["No request was sent", "A live test requires an explicit user action", "Unknown contracts require explicit request/response mapping"]
+    };
+  }
+  if (pathModel) {
+    return {
+      baseUrl: normalizedBaseUrl,
+      detectedType: "path-model",
+      adapter: "custom-path",
+      models: [pathModel],
+      checks: [],
+      evidence: ["path_model:recognized", "traffic:none"],
+      traffic: "none",
+      autoConfigured: false,
+      requiresLiveTest: true,
+      limitations: ["The path model was extracted from the URL only", "No request was sent", "An explicit authenticated live test is required", "The URL does not prove model identity or OpenAI compatibility"],
     };
   }
   if (template && liveTest) {
@@ -160,4 +186,4 @@ export async function detectCustomEndpoint({ baseUrl, apiKey, fetchImpl = fetch,
   return { baseUrl: normalizedBaseUrl, detectedType: detectedType || "unknown", adapter: detectedType === "anthropic" ? "anthropic" : detectedType === "openai" ? "openai" : "custom", models, checks, evidence, autoConfigured: detectedType === "openai" || detectedType === "anthropic", requiresLiveTest: false, traffic: "metadata-probes", limitations: ["Detection uses documented HTTP contracts only", "No browser traffic, cookies, sessions, or private endpoints are inspected", "Unknown contracts require explicit request/response mapping"] };
 }
 
-export const __testables = { inferFromSpec, modelIds, safeHeaders, hasPromptTemplate, templateUrl };
+export const __testables = { inferFromSpec, modelIds, safeHeaders, hasPromptTemplate, templateUrl, pathModelId };
