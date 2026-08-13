@@ -447,10 +447,21 @@ test("CLI setup wizard emits provider-specific artifacts without secrets", () =>
   assert.match(codex.content, /model_provider = "gateway"/);
   assert.match(codex.content, /base_url/);
 
-  const claude = buildSetup({ profileId: "claude", baseUrl: "https://gateway.example.test/v1" });
+  const claude = buildSetup({ profileId: "claude", baseUrl: "https://gateway.example.test/v1", model: "claude-opus-5" });
   assert.match(claude.content, /ANTHROPIC_BASE_URL/);
+  assert.match(claude.content, /ANTHROPIC_MODEL=claude-opus-5/);
   assert.match(claude.content, /GATEWAY_API_KEY/);
   assert.equal(claude.content.includes("cookie"), false);
+
+  for (const profileId of ["pi-mono", "prime", "gemini", "qwen", "kimi", "grok", "jcode", "custom"]) {
+    const setup = buildSetup({ profileId, baseUrl: "https://gateway.example.test/v1", model: "provider/model-x" });
+    assert.match(setup.content, /provider\/model-x/);
+    assert.match(setup.content, /OPENAI_BASE_URL=https:\/\/gateway\.example\.test\/v1/);
+    assert.equal(setup.content.includes("real-secret"), false);
+  }
+
+  const codexModel = buildSetup({ profileId: "codex", baseUrl: "https://gateway.example.test/v1", model: "openai/gpt-5" });
+  assert.match(codexModel.content, /model = "openai\/gpt-5"/);
 });
 
 

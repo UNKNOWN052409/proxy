@@ -1,227 +1,95 @@
 /**
- * Persistent file-backed account store.
- * Saves to ~/.kiro-proxy/accounts.json on every mutation.
- * Loads on startup. Accumulative — never clears on import.
+ * Durable provider-account store backed by the shared SQLite database.
+ * Only explicitly supplied API/OAuth credentials are accepted; browser/session
+ * material is rejected by importFromProxy before it reaches storage.
  */
+import { randomUUID } from "crypto";
+import { sqlStore, encryptSecret, decryptSecret } from "../storage/sql-store.js";
 
-import { v4 as uuidv4 } from "uuid";
-import fs from "fs";
-import path from "path";
+const db = sqlStore.db;
 
-const DATA_DIR = path.join(process.env.HOME || process.env.USERPROFILE || "~", ".kiro-proxy");
-const ACCOUNTS_FILE = path.join(DATA_DIR, "accounts.json");
-
-function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
+function rowToAccount(row) {
+  const payload = (() => { try { return JSON.parse(row.payload_json || "{}"); } catch { return {}; } })();
+  return {
+    id: row.id,
+    email: row.email || null,
+    provider: row.provider,
+    authType: row.auth_type || "oauth",
+    accessToken: row.access_token ? decryptSecret(row.access_token) : null,
+    refreshToken: row.refresh_token ? decryptSecret(row.refresh_token) : null,
+    expiresAt: row.expires_at || null,
+    ...payload,
+    active: Boolean(row.active),
+    importedAt: payload.importedAt || new Date(row.created_at).toISOString(),
+    source: row.source || payload.source || "manual",
+    label: payload.label || row.email || `Account ${row.id.slice(0, 8)}`,
+  };
 }
 
-let accounts = [];
-let loaded = false;
-
-function load() {
-  if (loaded) return;
-  ensureDir();
-  try {
-    if (fs.existsSync(ACCOUNTS_FILE)) {
-      const raw = fs.readFileSync(ACCOUNTS_FILE, "utf-8");
-      accounts = JSON.parse(raw);
-      if (!Array.isArray(accounts)) accounts = [];
-    }
-  } catch (err) {
-    console.error("Failed to load accounts:", err.message);
-    accounts = [];
-  }
-  loaded = true;
+function safePayload(account) {
+  const payload = { ...account };
+  delete payload.id; delete payload.email; delete payload.provider; delete payload.authType;
+  delete payload.accessToken; delete payload.refreshToken; delete payload.expiresAt;
+  delete payload.active; delete payload.source; delete payload.label; delete payload.importedAt;
+  return payload;
 }
 
-function save() {
-  ensureDir();
-  try {
-    fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2), "utf-8");
-  } catch (err) {
-    console.error("Failed to save accounts:", err.message);
-  }
+function rows() {
+  return db.prepare("SELECT * FROM oauth_accounts ORDER BY created_at DESC").all().map(rowToAccount);
 }
 
-// Load immediately
-load();
+function upsert(account, existingId = null) {
+  const now = Date.now();
+  const id = existingId || randomUUID();
+  db.prepare(`
+    INSERT INTO oauth_accounts (id, email, provider, auth_type, access_token, refresh_token, expires_at, payload_json, active, source, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET email=excluded.email, provider=excluded.provider, auth_type=excluded.auth_type,
+      access_token=excluded.access_token, refresh_token=excluded.refresh_token, expires_at=excluded.expires_at,
+      payload_json=excluded.payload_json, active=excluded.active, source=excluded.source, updated_at=excluded.updated_at
+  `).run(id, account.email || null, account.provider || "kiro", account.authType || "oauth", account.accessToken ? encryptSecret(account.accessToken) : null,
+    account.refreshToken ? encryptSecret(account.refreshToken) : null, account.expiresAt || null, JSON.stringify(safePayload(account)), account.active === false ? 0 : 1,
+    account.source || "manual", now, now);
+  return rowToAccount(db.prepare("SELECT * FROM oauth_accounts WHERE id = ?").get(id));
+}
+
+function rejectUnsafe(item) {
+  return ["password", "cookie", "cookies", "session", "sessionToken", "headers"].some((key) => item?.[key]);
+}
 
 export const accountStore = {
-  getAll() {
-    return [...accounts];
-  },
-
-  getById(id) {
-    load();
-    return accounts.find((account) => account.id === id) || null;
-  },
-
-  getActive() {
-    return accounts.filter(a => {
-      if (!a.active) return false;
-      if (a.expiresAt && new Date(a.expiresAt) < new Date()) return false;
-      return true;
-    });
-  },
-
+  getAll() { return rows(); },
+  getById(id) { const row = db.prepare("SELECT * FROM oauth_accounts WHERE id = ?").get(id); return row ? rowToAccount(row) : null; },
+  getActive() { return rows().filter((a) => a.active && (!a.expiresAt || Date.parse(a.expiresAt) > Date.now())); },
   add(account) {
-    load();
-    const existing = accounts.findIndex(
-      a => a.email && account.email && a.email.toLowerCase() === account.email.toLowerCase()
-    );
-
-    const entry = {
-      id: uuidv4(),
-      email: account.email || null,
-      provider: account.provider || "kiro",
-      authType: account.authType || "oauth",
-      accessToken: account.accessToken || null,
-      refreshToken: account.refreshToken || null,
-      expiresAt: account.expiresAt || null,
-      providerSpecificData: account.providerSpecificData || {},
-      testStatus: account.testStatus || "unknown",
-      active: account.active !== false,
-      importedAt: new Date().toISOString(),
-      source: account.source || "manual",
-      label: account.label || account.email || `Account ${accounts.length + 1}`,
-    };
-
-    if (existing >= 0) {
-      accounts[existing] = { ...accounts[existing], ...entry, id: accounts[existing].id };
-      if (account.label) accounts[existing].label = account.label;
-      save();
-      return accounts[existing];
-    }
-
-    accounts.push(entry);
-    save();
-    return entry;
+    const existing = account.email ? rows().find((a) => a.email && a.email.toLowerCase() === account.email.toLowerCase() && a.provider === (account.provider || "kiro")) : null;
+    return upsert({ ...account, importedAt: new Date().toISOString() }, existing?.id || null);
   },
-
   bulkImport(accountList, source = "import") {
-    load();
-    const results = [];
-    let success = 0;
-    let failed = 0;
-
-    for (const acct of accountList) {
+    const results = []; let success = 0; let failed = 0;
+    for (const acct of Array.isArray(accountList) ? accountList : []) {
       try {
-        if (!acct.accessToken && !acct.refreshToken) {
-          failed++;
-          results.push({ ok: false, error: "No accessToken or refreshToken", index: results.length });
-          continue;
-        }
-        const entry = this.add({ ...acct, source });
-        success++;
-        results.push({ ok: true, id: entry.id, email: entry.email });
-      } catch (err) {
-        failed++;
-        results.push({ ok: false, error: err.message, index: results.length });
-      }
+        if (rejectUnsafe(acct) || (!acct.accessToken && !acct.refreshToken)) throw new Error("Explicit accessToken or refreshToken is required; cookies, sessions, passwords, and private headers are not accepted");
+        const entry = this.add({ ...acct, source }); success++; results.push({ ok: true, id: entry.id, email: entry.email });
+      } catch (error) { failed++; results.push({ ok: false, error: error.message, index: results.length }); }
     }
-
     return { success, failed, results };
   },
-
-  importFromProxy(json, source = "unknown") {
-    let list = Array.isArray(json) ? json : (json.accounts || json.connections || [json]);
-    if (!Array.isArray(list)) list = [json];
-
-    const normalized = list.map(item => {
-      if (item.password || item.cookie || item.cookies || item.session || item.sessionToken || item.headers) return null;
-      if (item.accessToken || item.refreshToken) {
-        return {
-          accessToken: item.accessToken || null,
-          refreshToken: item.refreshToken || null,
-          email: item.email || null,
-          provider: item.provider || "kiro",
-          providerSpecificData: item.providerSpecificData || {},
-          testStatus: item.testStatus || "active",
-          authType: item.authType || "oauth",
-          source,
-          label: item.label || item.email || null,
-        };
-      }
-      if (item.cliProxyAuth) {
-        const auth = item.cliProxyAuth;
-        return {
-          accessToken: auth.accessToken || null,
-          refreshToken: auth.refreshToken || null,
-          email: auth.email || null,
-          provider: "kiro",
-          providerSpecificData: auth.providerSpecificData || {},
-          authType: "oauth",
-          source,
-          label: item.label || auth.email || null,
-        };
-      }
-      return {
-        accessToken: item.accessToken || item.token || null,
-        refreshToken: item.refreshToken || null,
-        email: item.email || null,
-        provider: item.provider || "kiro",
-        providerSpecificData: item.providerSpecificData || {},
-        authType: "oauth",
-        source,
-        label: item.label || item.email || null,
-      };
-    }).filter(a => a && (a.accessToken || a.refreshToken));
-
+  importFromProxy(json, source = "authorized-token-import") {
+    const list = Array.isArray(json) ? json : (json?.accounts || json?.connections || [json]);
+    const normalized = (Array.isArray(list) ? list : [list]).filter(Boolean).map((item) => {
+      if (rejectUnsafe(item)) return null;
+      const auth = item.cliProxyAuth || item;
+      if (!auth.accessToken && !auth.refreshToken) return null;
+      return { accessToken: auth.accessToken || null, refreshToken: auth.refreshToken || null, email: auth.email || item.email || null,
+        provider: auth.provider || item.provider || "kiro", providerSpecificData: auth.providerSpecificData || item.providerSpecificData || {},
+        authType: auth.authType || item.authType || "oauth", label: item.label || auth.email || null };
+    }).filter(Boolean);
     return this.bulkImport(normalized, source);
   },
-
-  remove(id) {
-    load();
-    const before = accounts.length;
-    accounts = accounts.filter(a => a.id !== id);
-    if (accounts.length !== before) { save(); return true; }
-    return false;
-  },
-
-  update(id, data) {
-    load();
-    const idx = accounts.findIndex(a => a.id === id);
-    if (idx >= 0) {
-      accounts[idx] = { ...accounts[idx], ...data };
-      save();
-      return accounts[idx];
-    }
-    return null;
-  },
-
-  exportJson() {
-    load();
-    return {
-      exportedAt: new Date().toISOString(),
-      source: "kiro-proxy",
-      totalAccounts: accounts.length,
-      accounts: accounts.map(a => ({
-        email: a.email,
-        provider: a.provider,
-        authType: a.authType,
-        accessToken: a.accessToken,
-        refreshToken: a.refreshToken,
-        providerSpecificData: a.providerSpecificData,
-        label: a.label,
-      })),
-    };
-  },
-
-  exportFormat9Router() {
-    load();
-    return accounts.map(a => ({
-      accessToken: a.accessToken,
-      refreshToken: a.refreshToken,
-      email: a.email,
-      providerSpecificData: a.providerSpecificData,
-    }));
-  },
-
-  _clear() {
-    load();
-    accounts = [];
-    save();
-  },
+  remove(id) { return db.prepare("DELETE FROM oauth_accounts WHERE id = ?").run(id).changes > 0; },
+  update(id, data) { return this.getById(id) ? upsert({ ...this.getById(id), ...data }, id) : null; },
+  exportJson() { const accounts = rows().map(({ accessToken, refreshToken, ...a }) => a); return { exportedAt: new Date().toISOString(), source: "kiro-proxy-sqlite", totalAccounts: accounts.length, accounts }; },
+  exportFormat9Router() { return rows().map(({ accessToken, refreshToken, email, providerSpecificData }) => ({ accessToken, refreshToken, email, providerSpecificData })); },
+  _clear() { db.prepare("DELETE FROM oauth_accounts").run(); },
 };

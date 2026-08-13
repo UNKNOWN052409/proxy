@@ -191,6 +191,22 @@ export default function GatewayPage() {
     finally { setBusyProvider(null); }
   };
 
+  const exportConfiguration = () => { window.open("/api/gateway/config", "_blank"); };
+
+  const importConfiguration = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const response = await fetch("/api/gateway/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: text });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Configuration import failed");
+      setMessage({ type: "success", text: `Imported ${result.providers?.length || 0} providers and ${result.models?.length || 0} model catalogs into SQLite.` });
+      await refresh({ silent: true });
+    } catch (error) { setMessage({ type: "error", text: error.message || "Configuration import failed" }); }
+  };
+
   const setEnabled = async (provider, enabled) => {
     setBusyProvider(provider.id);
     setMessage(null);
@@ -220,7 +236,7 @@ export default function GatewayPage() {
           <div className="flex items-center gap-2"><h1 className="text-2xl font-bold text-text-main">Gateway</h1><Badge variant={status?.enabled ? "success" : "neutral"} size="sm" dot>{status?.enabled ? "Ready" : "Needs setup"}</Badge></div>
           <p className="text-sm text-text-muted mt-1">Authorized API providers, normalized for OpenAI-compatible clients.</p>
         </div>
-        <div className="flex gap-2"><Button variant="outline" size="sm" icon="refresh" onClick={() => refresh()}>Refresh status</Button><Button variant="primary" size="sm" icon="add" onClick={() => setImportOpen((value) => !value)}>Add provider</Button></div>
+        <div className="flex gap-2 flex-wrap"><Button variant="outline" size="sm" icon="download" onClick={exportConfiguration}>Export SQL config</Button><label className="inline-flex items-center"><input type="file" accept="application/json,.json" onChange={importConfiguration} className="hidden" /><span className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-text-main cursor-pointer hover:bg-surface-2"><span className="material-symbols-outlined text-[16px]">upload_file</span>Import SQL config</span></label><Button variant="outline" size="sm" icon="refresh" onClick={() => refresh()}>Refresh status</Button><Button variant="primary" size="sm" icon="add" onClick={() => setImportOpen((value) => !value)}>Add provider</Button></div>
       </div>
 
       {message && <div className={`flex items-start gap-2 p-3 rounded-xl border text-sm ${message.type === "error" ? "bg-red-500/10 border-red-500/20 text-red-300" : message.type === "warning" ? "bg-amber-500/10 border-amber-500/20 text-amber-200" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-200"}`}><span className="material-symbols-outlined text-[18px]">{message.type === "error" ? "error" : message.type === "warning" ? "warning" : "check_circle"}</span><p>{message.text}</p></div>}

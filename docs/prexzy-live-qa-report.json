@@ -1,0 +1,156 @@
+[
+  {
+    "test_id": "MOD-01",
+    "feature": "model registry",
+    "expected": "OpenAI model list",
+    "actual": "HTTP 401",
+    "status": "BLOCKED",
+    "http_status": 401,
+    "latency_ms": 2914.1,
+    "evidence": {
+      "content_type": "text/html",
+      "error_shape": "False",
+      "preview": "<html>\r\n<head><title>401 Authorization Required</title></head>\r\n<body>\r\n<center><h1>401 Authorization Required</h1></center>\r\n<hr><center>nginx/1.24.0 (Ubuntu)</center>\r\n</body>\r\n</html>\r\n"
+    },
+    "severity": "High"
+  },
+  {
+    "test_id": "AUTH-02",
+    "feature": "authentication",
+    "expected": "invalid key rejected cleanly",
+    "actual": "HTTP 401",
+    "status": "PASS",
+    "http_status": 401,
+    "latency_ms": 2795.6,
+    "evidence": {
+      "content_type": "text/html",
+      "preview": "<html>\r\n<head><title>401 Authorization Required</title></head>\r\n<body>\r\n<center><h1>401 Authorization Required</h1></center>\r\n<hr><center>nginx/1.24.0 (Ubuntu)</center>\r\n</body>\r\n</html>\r\n"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "AUTH-03",
+    "feature": "authentication",
+    "expected": "supplied key accepted or cleanly rejected",
+    "actual": "HTTP 404",
+    "status": "FAIL",
+    "http_status": 404,
+    "latency_ms": 3587.4,
+    "evidence": {
+      "content_type": "application/json; charset=utf-8",
+      "json_shape": "True",
+      "model_count": "0"
+    },
+    "severity": "Low"
+  },
+  {
+    "test_id": "CHAT-01",
+    "feature": "basic chat",
+    "expected": "OpenAI completion JSON",
+    "actual": "claude-fable-5: HTTP 404",
+    "status": "BLOCKED",
+    "http_status": 404,
+    "latency_ms": 3610.5,
+    "evidence": {
+      "model": "claude-fable-5",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "type",
+        "error"
+      ],
+      "choice_count": "0",
+      "preview": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"PrexzyApis does not implement POST /v1/v1/chat/completions\"}}"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "ERR-02",
+    "feature": "error handling",
+    "expected": "malformed JSON returns clean error",
+    "actual": "HTTP 500",
+    "status": "FAIL",
+    "http_status": 500,
+    "latency_ms": 3183.2,
+    "evidence": {
+      "content_type": "application/json; charset=utf-8",
+      "preview": "{\"error\":\"Internal server error\"}"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "ERR-03",
+    "feature": "error handling",
+    "expected": "invalid model returns clean error",
+    "actual": "HTTP 404",
+    "status": "PASS",
+    "http_status": 404,
+    "latency_ms": 3163.2,
+    "evidence": {
+      "content_type": "application/json; charset=utf-8",
+      "preview": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"PrexzyApis does not implement POST /v1/v1/chat/completions\"}}"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "STREAM-01",
+    "feature": "streaming",
+    "expected": "SSE or clean unsupported error",
+    "actual": "HTTP 404",
+    "status": "BLOCKED",
+    "http_status": 404,
+    "latency_ms": 3331.8,
+    "evidence": {
+      "model": "claude-fable-5",
+      "content_type": "application/json; charset=utf-8",
+      "sse_prefix": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"PrexzyApis does not implement POST /v1/v1/chat/completions\"}}"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "JSON-01",
+    "feature": "structured output",
+    "expected": "valid JSON mode or clean unsupported error",
+    "actual": "HTTP 404",
+    "status": "BLOCKED",
+    "http_status": 404,
+    "latency_ms": 3156.7,
+    "evidence": {
+      "model": "claude-fable-5",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "type",
+        "error"
+      ]
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "TOOL-01",
+    "feature": "tools",
+    "expected": "tool call or clean unsupported error",
+    "actual": "HTTP 404",
+    "status": "BLOCKED",
+    "http_status": 404,
+    "latency_ms": 3535.5,
+    "evidence": {
+      "model": "claude-fable-5",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "type",
+        "error"
+      ]
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "CONC-01",
+    "feature": "bounded concurrency",
+    "expected": "five requests only after approval",
+    "actual": "not run; explicit approval flag absent",
+    "status": "BLOCKED",
+    "http_status": null,
+    "latency_ms": 0.0,
+    "evidence": {},
+    "severity": "Low"
+  }
+]

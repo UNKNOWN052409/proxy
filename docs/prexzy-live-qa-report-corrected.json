@@ -1,0 +1,402 @@
+[
+  {
+    "test_id": "MOD-01",
+    "feature": "model registry",
+    "expected": "OpenAI model list",
+    "actual": "HTTP 401",
+    "status": "BLOCKED",
+    "http_status": 401,
+    "latency_ms": 2563.8,
+    "evidence": {
+      "content_type": "text/html",
+      "error_shape": "False",
+      "preview": "<html>\r\n<head><title>401 Authorization Required</title></head>\r\n<body>\r\n<center><h1>401 Authorization Required</h1></center>\r\n<hr><center>nginx/1.24.0 (Ubuntu)</center>\r\n</body>\r\n</html>\r\n"
+    },
+    "severity": "High"
+  },
+  {
+    "test_id": "AUTH-02",
+    "feature": "authentication",
+    "expected": "invalid key rejected cleanly",
+    "actual": "HTTP 401",
+    "status": "PASS",
+    "http_status": 401,
+    "latency_ms": 3063.5,
+    "evidence": {
+      "content_type": "text/html",
+      "preview": "<html>\r\n<head><title>401 Authorization Required</title></head>\r\n<body>\r\n<center><h1>401 Authorization Required</h1></center>\r\n<hr><center>nginx/1.24.0 (Ubuntu)</center>\r\n</body>\r\n</html>\r\n"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "AUTH-03",
+    "feature": "authentication",
+    "expected": "supplied key accepted or cleanly rejected",
+    "actual": "HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 3627.6,
+    "evidence": {
+      "content_type": "application/json; charset=utf-8",
+      "json_shape": "True",
+      "model_count": "15"
+    },
+    "severity": "Low"
+  },
+  {
+    "test_id": "CHAT-01",
+    "feature": "basic chat",
+    "expected": "OpenAI completion JSON",
+    "actual": "claude-fable-5: HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 6092.9,
+    "evidence": {
+      "model": "claude-fable-5",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "id",
+        "object",
+        "created",
+        "model",
+        "choices",
+        "usage"
+      ],
+      "choice_count": "1",
+      "preview": "{\"id\":\"chatcmpl-635fbb06dc55f3268f1959d5\",\"object\":\"chat.completion\",\"created\":1786620047,\"model\":\"claude-fable-5\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\",\"reasoning_content\":"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "CHAT-01",
+    "feature": "basic chat",
+    "expected": "OpenAI completion JSON",
+    "actual": "claude-fable-5[1m]: HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 7130.0,
+    "evidence": {
+      "model": "claude-fable-5[1m]",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "id",
+        "object",
+        "created",
+        "model",
+        "choices",
+        "usage"
+      ],
+      "choice_count": "1",
+      "preview": "{\"id\":\"chatcmpl-81a147f26b1f223ca13fc679\",\"object\":\"chat.completion\",\"created\":1786620054,\"model\":\"claude-fable-5[1m]\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\",\"reasoning_conte"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "CHAT-01",
+    "feature": "basic chat",
+    "expected": "OpenAI completion JSON",
+    "actual": "claude-opus-4-8: HTTP 402",
+    "status": "FAIL",
+    "http_status": 402,
+    "latency_ms": 3489.7,
+    "evidence": {
+      "model": "claude-opus-4-8",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "type",
+        "error"
+      ],
+      "choice_count": "0",
+      "preview": "{\n  \"type\": \"error\",\n  \"error\": {\n    \"type\": \"api_error\",\n    \"message\": \"The upstream returned an error.\"\n  }\n}"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "CHAT-01",
+    "feature": "basic chat",
+    "expected": "OpenAI completion JSON",
+    "actual": "claude-opus-4-8[1m]: HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 7080.1,
+    "evidence": {
+      "model": "claude-opus-4-8[1m]",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "id",
+        "object",
+        "created",
+        "model",
+        "choices",
+        "usage"
+      ],
+      "choice_count": "1",
+      "preview": "{\"id\":\"chatcmpl-e7759c50eb02c294472f23c5\",\"object\":\"chat.completion\",\"created\":1786620065,\"model\":\"claude-opus-4-8[1m]\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\",\"reasoning_cont"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "CHAT-01",
+    "feature": "basic chat",
+    "expected": "OpenAI completion JSON",
+    "actual": "claude-opus-5: HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 6121.8,
+    "evidence": {
+      "model": "claude-opus-5",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "id",
+        "object",
+        "created",
+        "model",
+        "choices",
+        "usage"
+      ],
+      "choice_count": "1",
+      "preview": "{\"id\":\"chatcmpl-c3a3914c54f0db703cf04e08\",\"object\":\"chat.completion\",\"created\":1786620071,\"model\":\"claude-opus-5\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\",\"reasoning_content\":\""
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "CHAT-01",
+    "feature": "basic chat",
+    "expected": "OpenAI completion JSON",
+    "actual": "claude-opus-5[1m]: HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 6691.8,
+    "evidence": {
+      "model": "claude-opus-5[1m]",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "id",
+        "object",
+        "created",
+        "model",
+        "choices",
+        "usage"
+      ],
+      "choice_count": "1",
+      "preview": "{\"id\":\"chatcmpl-bfb110727b5181d736a561b1\",\"object\":\"chat.completion\",\"created\":1786620077,\"model\":\"claude-opus-5[1m]\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\",\"reasoning_conten"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "CHAT-01",
+    "feature": "basic chat",
+    "expected": "OpenAI completion JSON",
+    "actual": "claude-sonnet-5: HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 7398.7,
+    "evidence": {
+      "model": "claude-sonnet-5",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "id",
+        "object",
+        "created",
+        "model",
+        "choices",
+        "usage"
+      ],
+      "choice_count": "1",
+      "preview": "{\"id\":\"chatcmpl-75ddd562d7133fc4e335b8d5\",\"object\":\"chat.completion\",\"created\":1786620085,\"model\":\"claude-sonnet-5\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\",\"reasoning_content\""
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "CHAT-01",
+    "feature": "basic chat",
+    "expected": "OpenAI completion JSON",
+    "actual": "claude-sonnet-5[1m]: HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 5993.4,
+    "evidence": {
+      "model": "claude-sonnet-5[1m]",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "id",
+        "object",
+        "created",
+        "model",
+        "choices",
+        "usage"
+      ],
+      "choice_count": "1",
+      "preview": "{\"id\":\"chatcmpl-4ee4384a27fd944e4f2e61ca\",\"object\":\"chat.completion\",\"created\":1786620091,\"model\":\"claude-sonnet-5[1m]\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\",\"reasoning_cont"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "CHAT-01",
+    "feature": "basic chat",
+    "expected": "OpenAI completion JSON",
+    "actual": "gemini-3-pro-image: HTTP 502",
+    "status": "BLOCKED",
+    "http_status": 502,
+    "latency_ms": 2951.4,
+    "evidence": {
+      "model": "gemini-3-pro-image",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "type",
+        "title",
+        "status",
+        "detail",
+        "instance",
+        "error_code",
+        "error_name",
+        "error_category",
+        "ray_id",
+        "timestamp",
+        "zone",
+        "cloudflare_error",
+        "retryable",
+        "retry_after",
+        "owner_action_required",
+        "what_you_should_do",
+        "footer"
+      ],
+      "choice_count": "0",
+      "preview": "{\"type\":\"https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-502/\",\"title\":\"Error 502: Bad gateway\",\"status\":502,\"detail\":\"The origin web server ret"
+    },
+    "severity": "High"
+  },
+  {
+    "test_id": "CHAT-01",
+    "feature": "basic chat",
+    "expected": "OpenAI completion JSON",
+    "actual": "gemini-3.1-flash-image: HTTP 502",
+    "status": "BLOCKED",
+    "http_status": 502,
+    "latency_ms": 3034.8,
+    "evidence": {
+      "model": "gemini-3.1-flash-image",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "type",
+        "title",
+        "status",
+        "detail",
+        "instance",
+        "error_code",
+        "error_name",
+        "error_category",
+        "ray_id",
+        "timestamp",
+        "zone",
+        "cloudflare_error",
+        "retryable",
+        "retry_after",
+        "owner_action_required",
+        "what_you_should_do",
+        "footer"
+      ],
+      "choice_count": "0",
+      "preview": "{\"type\":\"https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-502/\",\"title\":\"Error 502: Bad gateway\",\"status\":502,\"detail\":\"The origin web server ret"
+    },
+    "severity": "High"
+  },
+  {
+    "test_id": "ERR-02",
+    "feature": "error handling",
+    "expected": "malformed JSON returns clean error",
+    "actual": "HTTP 500",
+    "status": "FAIL",
+    "http_status": 500,
+    "latency_ms": 3094.7,
+    "evidence": {
+      "content_type": "application/json; charset=utf-8",
+      "preview": "{\"error\":\"Internal server error\"}"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "ERR-03",
+    "feature": "error handling",
+    "expected": "invalid model returns clean error",
+    "actual": "HTTP 404",
+    "status": "PASS",
+    "http_status": 404,
+    "latency_ms": 2755.5,
+    "evidence": {
+      "content_type": "application/json; charset=utf-8",
+      "preview": "{\"error\":{\"message\":\"Unknown model: __invalid_model__\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"model_not_found\"}}"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "STREAM-01",
+    "feature": "streaming",
+    "expected": "SSE or clean unsupported error",
+    "actual": "HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 5769.4,
+    "evidence": {
+      "model": "claude-fable-5",
+      "content_type": "text/event-stream; charset=utf-8",
+      "sse_prefix": "data: {\"id\":\"chatcmpl-643c6221f5cf4eb3a294\",\"object\":\"chat.completion.chunk\",\"created\":1786620108,\"model\":\"claude-fable-5\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reaso"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "JSON-01",
+    "feature": "structured output",
+    "expected": "valid JSON mode or clean unsupported error",
+    "actual": "HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 5330.9,
+    "evidence": {
+      "model": "claude-fable-5",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "id",
+        "object",
+        "created",
+        "model",
+        "choices",
+        "usage"
+      ]
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "TOOL-01",
+    "feature": "tools",
+    "expected": "tool call or clean unsupported error",
+    "actual": "HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 5661.4,
+    "evidence": {
+      "model": "claude-fable-5",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "id",
+        "object",
+        "created",
+        "model",
+        "choices",
+        "usage"
+      ]
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "CONC-01",
+    "feature": "bounded concurrency",
+    "expected": "five requests only after approval",
+    "actual": "not run; explicit approval flag absent",
+    "status": "BLOCKED",
+    "http_status": null,
+    "latency_ms": 0.0,
+    "evidence": {},
+    "severity": "Low"
+  }
+]

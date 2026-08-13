@@ -1,21 +1,15 @@
 /**
- * User config store — dashboard password, tunnel settings, port
- * JSON file at ~/.kiro-proxy/config.json
+ * Durable dashboard configuration store backed by SQLite.
+ * Existing ~/.kiro-proxy/config.json is migrated once and retained as a backup.
  */
 import fs from "fs";
 import path from "path";
 import { createHash } from "crypto";
+import { sqlStore } from "../storage/sql-store.js";
 
 const DATA_DIR = path.join(process.env.HOME || process.env.USERPROFILE || "~", ".kiro-proxy");
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
-
-function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-}
-
-let cache = null;
+const NAMESPACE = "config";
 
 const DEFAULTS = {
   passwordHash: null,
@@ -31,22 +25,19 @@ const DEFAULTS = {
   port: 20127,
 };
 
-function loadRaw() {
-  ensureDir();
-  try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      const raw = fs.readFileSync(CONFIG_FILE, "utf-8");
-      return JSON.parse(raw);
-    }
-  } catch {
-    // ignore
-  }
-  return {};
-}
+let cache = null;
+let migrated = false;
 
-function saveData(data) {
-  ensureDir();
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2), "utf-8");
+function ensureMigrated() {
+  if (migrated) return;
+  const existing = sqlStore.namespace(NAMESPACE);
+  if (Object.keys(existing).length === 0 && fs.existsSync(CONFIG_FILE)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+      if (parsed && typeof parsed === "object") sqlStore.setMany(NAMESPACE, parsed);
+    } catch { /* invalid legacy config is ignored safely */ }
+  }
+  migrated = true;
 }
 
 function hashPassword(password) {
@@ -54,61 +45,34 @@ function hashPassword(password) {
 }
 
 export const userConfig = {
-  /** Get full config object */
   get() {
-    if (!cache) {
-      cache = { ...DEFAULTS, ...loadRaw() };
-    }
+    ensureMigrated();
+    if (!cache) cache = { ...DEFAULTS, ...sqlStore.namespace(NAMESPACE) };
     return { ...cache };
   },
-
-  /** Set a single key */
   set(key, value) {
-    const current = loadRaw();
-    current[key] = value;
-    cache = { ...DEFAULTS, ...current };
-    saveData(current);
+    ensureMigrated();
+    sqlStore.set(NAMESPACE, key, value);
+    cache = { ...this.get(), [key]: value };
   },
-
-  /** Set multiple keys */
   setAll(updates) {
-    const current = loadRaw();
-    Object.assign(current, updates);
-    cache = { ...DEFAULTS, ...current };
-    saveData(current);
+    ensureMigrated();
+    sqlStore.setMany(NAMESPACE, updates);
+    cache = { ...this.get(), ...updates };
   },
-
-  /** Reset to defaults */
   reset() {
+    ensureMigrated();
+    for (const key of Object.keys(sqlStore.namespace(NAMESPACE))) sqlStore.delete(NAMESPACE, key);
     cache = { ...DEFAULTS };
-    saveData({});
   },
-
-  // ─── Password ─────────────────────────────────────
-  hasPassword() {
-    return !!this.get().passwordHash;
-  },
-
-  setPassword(plainPassword) {
-    this.set("passwordHash", hashPassword(plainPassword));
-  },
-
+  hasPassword() { return !!this.get().passwordHash; },
+  setPassword(plainPassword) { this.set("passwordHash", hashPassword(plainPassword)); },
   verifyPassword(plainPassword) {
     const hash = this.get().passwordHash;
-    if (!hash) return true; // no password set → allow
+    if (!hash) return true;
     return hash === hashPassword(plainPassword);
   },
-
-  // ─── Tunnel ───────────────────────────────────────
-  setTunnelInfo(url, pid) {
-    this.setAll({ tunnelEnabled: true, tunnelUrl: url, tunnelProcessId: pid });
-  },
-
-  clearTunnelInfo() {
-    this.setAll({ tunnelEnabled: false, tunnelUrl: null, tunnelProcessId: null });
-  },
-
-  setCustomDomain(domain) {
-    this.set("customDomain", domain || null);
-  },
+  setTunnelInfo(url, pid) { this.setAll({ tunnelEnabled: true, tunnelUrl: url, tunnelProcessId: pid }); },
+  clearTunnelInfo() { this.setAll({ tunnelEnabled: false, tunnelUrl: null, tunnelProcessId: null }); },
+  setCustomDomain(domain) { this.set("customDomain", domain || null); },
 };

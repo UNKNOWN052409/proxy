@@ -311,7 +311,7 @@ class AccountStore {
    * @returns {Object} Result with { success: number, failed: number, errors: Array }
    */
   bulkImport(accounts, defaultProvider = "manual") {
-    const importTransaction = this.db.transaction(() => {
+    const runImport = () => {
       const results = { success: 0, failed: 0, errors: [] };
 
       for (const data of accounts) {
@@ -361,9 +361,13 @@ class AccountStore {
       }
 
       return results;
-    });
+    };
 
-    return importTransaction();
+    // node:sqlite versions and lightweight test/runtime adapters may not expose
+    // transaction(); preserve correctness with the direct path as a fallback.
+    return typeof this.db.transaction === "function"
+      ? this.db.transaction(runImport)()
+      : runImport();
   }
 
   /**

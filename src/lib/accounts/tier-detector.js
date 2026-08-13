@@ -102,13 +102,14 @@ async function makeKiroRequest(endpoint, credentials) {
  * @param {Object} credentials - Account credentials
  * @returns {Promise<string|null>} Detected tier or null if not found
  */
-async function detectTierFromAccountInfo(credentials) {
+async function detectTierFromAccountInfo(credentials, throwOnTransportError = false) {
   const response = await makeKiroRequest(
     KIRO_API_CONFIG.endpoints.accountInfo,
     credentials
   );
 
   if (!response.success) {
+    if (throwOnTransportError && response.error) throw new Error(response.error);
     return null;
   }
 
@@ -144,12 +145,14 @@ async function detectTierFromAccountInfo(credentials) {
  * @param {Object} credentials - Account credentials
  * @returns {Promise<string>} Detected tier
  */
-async function detectTierFromFeatureAccess(credentials) {
+async function detectTierFromFeatureAccess(credentials, throwOnTransportError = false) {
   // Test enterprise feature first (highest tier)
   const enterpriseResponse = await makeKiroRequest(
     KIRO_API_CONFIG.endpoints.enterpriseFeature,
     credentials
   );
+
+  if (throwOnTransportError && enterpriseResponse.error) throw new Error(enterpriseResponse.error);
 
   // Status 200 or 204 = has access
   if (enterpriseResponse.success || enterpriseResponse.status === 204) {
@@ -161,6 +164,8 @@ async function detectTierFromFeatureAccess(credentials) {
     KIRO_API_CONFIG.endpoints.proFeature,
     credentials
   );
+
+  if (throwOnTransportError && proResponse.error) throw new Error(proResponse.error);
 
   // Status 200 or 204 = has access
   if (proResponse.success || proResponse.status === 204) {
@@ -201,7 +206,14 @@ async function detectTierFromFeatureAccess(credentials) {
  * const tier = await detectTier(account, { forceRefresh: true });
  */
 export async function detectTier(account, options = {}) {
-  const { forceRefresh = false } = options;
+  const { forceRefresh = false, throwOnTransportError = false } = options;
+
+  // Returned account summaries intentionally omit plaintext credentials. When an
+  // ID is present, use the stored credential representation for internal probes.
+  if (account && account.id && !account.password) {
+    const storedAccount = accountStore.get(account.id);
+    if (storedAccount) account = { ...storedAccount, ...account, password: storedAccount.password };
+  }
 
   // Validate input
   if (!account || !account.email || !account.password) {
@@ -238,15 +250,16 @@ export async function detectTier(account, options = {}) {
 
   try {
     // Strategy 1: Try to get tier from account info endpoint
-    tierFromInfo = await detectTierFromAccountInfo(credentials);
+    tierFromInfo = await detectTierFromAccountInfo(credentials, throwOnTransportError);
     if (tierFromInfo) {
       detectedTier = tierFromInfo;
     } else {
       // Strategy 2: Test feature access to determine tier
-      detectedTier = await detectTierFromFeatureAccess(credentials);
+      detectedTier = await detectTierFromFeatureAccess(credentials, throwOnTransportError);
     }
   } catch (error) {
     console.error("detectTier: Error during tier detection:", error.message);
+    if (throwOnTransportError) throw error;
     // Fall through to use default "free" tier
   }
 
@@ -299,7 +312,7 @@ export async function batchDetectTiers(accounts, options = {}) {
 
   for (const account of accounts) {
     try {
-      const tier = await detectTier(account, { forceRefresh });
+      const tier = await detectTier(account, { forceRefresh, throwOnTransportError: true });
       results.detected++;
       results.results.push({
         email: account.email,

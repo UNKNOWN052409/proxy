@@ -1,14 +1,29 @@
-/**
- * Legacy account/password export is intentionally disabled.
- * The compliant gateway never serializes passwords, browser sessions, or
- * third-party account dumps into router-compatible files.
- */
+import { NextResponse } from "next/server";
+import { accountStore } from "@/lib/kiro/store";
+import { currentUser, requireRole } from "@/lib/platform/auth";
 
-export async function GET() {
-  return Response.json({
-    enabled: false,
-    error: "Legacy account export is disabled",
-    replacement: "/api/gateway/providers",
-    note: "Use provider metadata/model catalog export only; secrets remain in the encrypted store.",
-  }, { status: 410 });
+export const runtime = "nodejs";
+
+export async function GET(request) {
+  try {
+    requireRole(await currentUser(), ["admin"]);
+    const format = new URL(request.url).searchParams.get("format") || "metadata";
+    let payload;
+    let filename;
+    if (format === "9router") {
+      payload = { exportedAt: new Date().toISOString(), source: "kiro-proxy-sqlite", format, connections: accountStore.exportFormat9Router() };
+      filename = "gateway-9router-export.json";
+    } else {
+      payload = accountStore.exportJson();
+      payload.format = "metadata";
+      payload.warning = "Secrets are excluded. Re-import explicit API/OAuth credentials through the encrypted credential flow.";
+      filename = "gateway-accounts-metadata.json";
+    }
+    return new NextResponse(JSON.stringify(payload, null, 2), {
+      status: 200,
+      headers: { "Content-Type": "application/json; charset=utf-8", "Content-Disposition": `attachment; filename="${filename}"`, "Cache-Control": "no-store" },
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error.message }, { status: error.status || 403 });
+  }
 }

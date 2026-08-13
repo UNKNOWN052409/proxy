@@ -1,15 +1,15 @@
 const PROFILES = Object.freeze({
-  "pi-mono": { id: "pi-mono", label: "Pi Mono", protocol: "openai", format: "env", fileName: ".env.gateway", supportsTools: true, supportsVision: false, install: "Set the generated environment variables in the Pi Mono shell or launcher." },
-  prime: { id: "prime", label: "Prime", protocol: "openai", format: "env", fileName: ".env.gateway", supportsTools: true, supportsVision: false, install: "Set the generated environment variables in the Prime CLI environment." },
-  claude: { id: "claude", label: "Claude Code CLI", protocol: "anthropic", format: "env", fileName: ".env.claude-gateway", supportsTools: true, supportsVision: true, envBase: "ANTHROPIC_BASE_URL", envKey: "ANTHROPIC_API_KEY", install: "Source the generated environment file before starting Claude Code." },
-  codex: { id: "codex", label: "Codex CLI", protocol: "openai", format: "toml", fileName: "~/.codex/config.toml", supportsTools: true, supportsVision: false, install: "Merge the generated TOML into ~/.codex/config.toml; keep the API key in CODEX_API_KEY." },
-  opencode: { id: "opencode", label: "OpenCode", protocol: "openai", format: "json", fileName: "opencode.json", supportsTools: true, supportsVision: false, localOnly: true, install: "Save opencode.json in the project directory. Use OpenCode /connect for its own credential storage." },
-  gemini: { id: "gemini", label: "Gemini CLI", protocol: "openai", format: "env", fileName: ".env.gemini-gateway", supportsTools: true, supportsVision: true, install: "Export the generated gateway variables before starting Gemini CLI; verify the installed CLI version's custom endpoint support." },
-  qwen: { id: "qwen", label: "Qwen CLI", protocol: "openai", format: "env", fileName: ".env.qwen-gateway", supportsTools: true, supportsVision: true, install: "Export the generated OpenAI-compatible variables before starting Qwen Code." },
-  kimi: { id: "kimi", label: "Kimi CLI", protocol: "openai", format: "env", fileName: ".env.kimi-gateway", supportsTools: true, supportsVision: true, install: "Use the documented API-key/API-source setup in Kimi CLI, with the generated endpoint where supported." },
-  grok: { id: "grok", label: "Grok CLI", protocol: "openai", format: "env", fileName: ".env.grok-gateway", supportsTools: true, supportsVision: true, install: "Export the generated OpenAI-compatible variables before launching the authorized Grok client." },
-  jcode: { id: "jcode", label: "JCode CLI", protocol: "openai", format: "env", fileName: ".env.jcode-gateway", supportsTools: true, supportsVision: false, install: "Export the generated OpenAI-compatible variables; custom endpoint support depends on the installed JCode version." },
-  custom: { id: "custom", label: "Custom CLI", protocol: "openai", format: "env", fileName: ".env.gateway", supportsTools: false, supportsVision: false, install: "Map the generated OPENAI_BASE_URL and OPENAI_API_KEY variables to the custom CLI's documented options." },
+  "pi-mono": { id: "pi-mono", label: "Pi Mono", protocol: "openai", format: "env", fileName: ".env.gateway", supportsTools: true, supportsVision: false, modelEnv: "OPENAI_MODEL", install: "Set the generated environment variables in the Pi Mono shell or launcher." },
+  prime: { id: "prime", label: "Prime", protocol: "openai", format: "env", fileName: ".env.gateway", supportsTools: true, supportsVision: false, modelEnv: "OPENAI_MODEL", install: "Set the generated environment variables in the Prime CLI environment." },
+  claude: { id: "claude", label: "Claude Code CLI", protocol: "anthropic", format: "env", fileName: ".env.claude-gateway", supportsTools: true, supportsVision: true, envBase: "ANTHROPIC_BASE_URL", envKey: "ANTHROPIC_API_KEY", modelEnv: "ANTHROPIC_MODEL", install: "Source the generated environment file before starting Claude Code." },
+  codex: { id: "codex", label: "Codex CLI", protocol: "openai", format: "toml", fileName: "~/.codex/config.toml", supportsTools: true, supportsVision: false, modelEnv: "CODEX_MODEL", install: "Merge the generated TOML into ~/.codex/config.toml; keep the API key in CODEX_API_KEY." },
+  opencode: { id: "opencode", label: "OpenCode", protocol: "openai", format: "json", fileName: "opencode.json", supportsTools: true, supportsVision: false, modelEnv: "OPENCODE_MODEL", localOnly: true, install: "Save opencode.json in the project directory. Use OpenCode /connect for its own credential storage." },
+  gemini: { id: "gemini", label: "Gemini CLI", protocol: "openai", format: "env", fileName: ".env.gemini-gateway", supportsTools: true, supportsVision: true, modelEnv: "OPENAI_MODEL", install: "Export the generated gateway variables before starting Gemini CLI; verify the installed CLI version's custom endpoint support." },
+  qwen: { id: "qwen", label: "Qwen CLI", protocol: "openai", format: "env", fileName: ".env.qwen-gateway", supportsTools: true, supportsVision: true, modelEnv: "OPENAI_MODEL", install: "Export the generated OpenAI-compatible variables before starting Qwen Code." },
+  kimi: { id: "kimi", label: "Kimi CLI", protocol: "openai", format: "env", fileName: ".env.kimi-gateway", supportsTools: true, supportsVision: true, modelEnv: "OPENAI_MODEL", install: "Use the documented API-key/API-source setup in Kimi CLI, with the generated endpoint where supported." },
+  grok: { id: "grok", label: "Grok CLI", protocol: "openai", format: "env", fileName: ".env.grok-gateway", supportsTools: true, supportsVision: true, modelEnv: "OPENAI_MODEL", install: "Export the generated OpenAI-compatible variables before launching the authorized Grok client." },
+  jcode: { id: "jcode", label: "JCode CLI", protocol: "openai", format: "env", fileName: ".env.jcode-gateway", supportsTools: true, supportsVision: false, modelEnv: "OPENAI_MODEL", install: "Export the generated OpenAI-compatible variables; custom endpoint support depends on the installed JCode version." },
+  custom: { id: "custom", label: "Custom CLI", protocol: "openai", format: "env", fileName: ".env.gateway", supportsTools: false, supportsVision: false, modelEnv: "OPENAI_MODEL", install: "Map the generated OPENAI_BASE_URL and OPENAI_API_KEY variables to the custom CLI's documented options." },
 });
 
 function cleanUrl(value) {
@@ -44,7 +44,8 @@ function buildSetup({ profileId = "custom", baseUrl, model = null, gatewayUrl = 
   } else {
     const baseName = profile.envBase || "OPENAI_BASE_URL";
     const keyName = profile.envKey || "OPENAI_API_KEY";
-    content = `${baseName}=${normalizedBaseUrl}\n${keyName}=$GATEWAY_API_KEY\nOPENAI_BASE_URL=${normalizedBaseUrl}\nOPENAI_API_KEY=$GATEWAY_API_KEY\nGATEWAY_MODEL=${selectedModel}\n`;
+    const modelName = profile.modelEnv || "OPENAI_MODEL";
+    content = `${baseName}=${normalizedBaseUrl}\n${keyName}=$GATEWAY_API_KEY\n${modelName}=${selectedModel}\nOPENAI_BASE_URL=${normalizedBaseUrl}\nOPENAI_API_KEY=$GATEWAY_API_KEY\nOPENAI_MODEL=${selectedModel}\nGATEWAY_MODEL=${selectedModel}\n`;
   }
   return {
     profile: profile.id, label: profile.label, format: profile.format, fileName: profile.fileName,
