@@ -48,6 +48,11 @@ test("selects, verifies, rotates, and records credential state", () => {
   assert.equal(credentials.getCredentialPoolStatus("test-provider").ready, 1);
   credentials.markCredentialResult("test-provider", first.credentialId, true, 200);
   assert.equal(credentials.listCredentialMetadata("test-provider").find((item) => item.id === first.credentialId).failureCount, 0);
+  assert.equal(credentials.setCredentialEnabled("test-provider", first.credentialId, false), true);
+  assert.equal(credentials.listCredentialMetadata("test-provider").find((item) => item.id === first.credentialId).disabled, true);
+  assert.equal(credentials.getCredentialPoolStatus("test-provider").disabled, 1);
+  assert.equal(credentials.setCredentialEnabled("test-provider", first.credentialId, true), true);
+  assert.equal(credentials.selectCredential("test-provider").apiKey, "beta-secret");
 });
 
 test("filters expired credentials and rejects invalid imports", () => {

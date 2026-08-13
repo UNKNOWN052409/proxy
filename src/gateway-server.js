@@ -9,7 +9,8 @@ import http from "node:http";
 import { listenWithPortFallback } from "./lib/runtime/port.js";
 import { validateKey } from "./lib/api-keys/store.js";
 import { getGatewayStatus, listGatewayModels } from "./lib/gateway/config.js";
-import { executeGatewayChat } from "./lib/gateway/service.js";
+import { executeGatewayChat, executeGatewayImage } from "./lib/gateway/service.js";
+import { startRefreshScheduler } from "./lib/gateway/refresh-scheduler.js";
 import { corsHeaders, getBearerToken, openAiErrorResponse, validateChatRequest, gatewayError } from "./lib/gateway/openai.js";
 
 const preferredPort = Number(process.env.GATEWAY_PORT || 2018);
@@ -62,7 +63,7 @@ function authenticate(nodeRequest) {
 
 async function handle(nodeRequest) {
   const pathname = new URL(nodeRequest.url, `http://${nodeRequest.headers.host || "localhost"}`).pathname;
-  if (nodeRequest.method === "OPTIONS" && ["/v1/models", "/v1/chat/completions"].includes(pathname)) {
+  if (nodeRequest.method === "OPTIONS" && ["/v1/models", "/v1/chat/completions", "/v1/images/generations"].includes(pathname)) {
     return new Response(null, { status: 204, headers: corsHeaders() });
   }
   if (nodeRequest.method === "GET" && pathname === "/health") {
@@ -79,6 +80,12 @@ async function handle(nodeRequest) {
     if (body.stream) throw gatewayError("Streaming is available through the dashboard route only; set stream to false for the standalone server", 400, "unsupported_feature");
     const { completion } = await executeGatewayChat(body);
     return Response.json(completion, { headers: corsHeaders() });
+  }
+  if (nodeRequest.method === "POST" && pathname === "/v1/images/generations") {
+    authenticate(nodeRequest);
+    const body = await readJson(nodeRequest);
+    const result = await executeGatewayImage(body);
+    return Response.json(result, { headers: corsHeaders() });
   }
   throw gatewayError("Route not found", 404, "invalid_request_error", "not_found");
 }
@@ -97,6 +104,9 @@ listenWithPortFallback(server, {
   attempts: process.env.PORT_FALLBACK_MAX_ATTEMPTS,
 }).then((port) => {
   activePort = port;
+  if (process.env.GATEWAY_MODEL_REFRESH_SCHEDULER === "true") {
+    startRefreshScheduler({ runImmediately: process.env.GATEWAY_MODEL_REFRESH_ON_START !== "false" });
+  }
   console.log(`Gateway listening at http://${host}:${port}`);
 }).catch((error) => {
   console.error(error instanceof Error ? error.message : "Could not start gateway");

@@ -79,6 +79,7 @@ function normalizeCredential(entry, providerId) {
     failureCount: 0,
     cooldownUntil: null,
     lastUsedAt: null,
+    disabled: false,
   };
 }
 
@@ -97,7 +98,7 @@ export function importEncryptedCredentials(providerIdValue, entries) {
 
 export function listCredentialMetadata(providerIdValue) {
   const providerId = normalizeProviderId(providerIdValue);
-  return (readStore().credentials[providerId] || []).map(({ id, providerId: idProvider, label, createdAt, expiresAt, failureCount, cooldownUntil, lastUsedAt, lastSuccessAt, lastFailureAt, lastStatusCode, verification }) => ({ id, providerId: idProvider, label, createdAt, expiresAt, failureCount, cooldownUntil, lastUsedAt, lastSuccessAt: lastSuccessAt || null, lastFailureAt: lastFailureAt || null, lastStatusCode: lastStatusCode || null, verification: verification || null }));
+  return (readStore().credentials[providerId] || []).map(({ id, providerId: idProvider, label, createdAt, expiresAt, failureCount, cooldownUntil, lastUsedAt, lastSuccessAt, lastFailureAt, lastStatusCode, verification, disabled }) => ({ id, providerId: idProvider, label, createdAt, expiresAt, failureCount, cooldownUntil, lastUsedAt, disabled: disabled === true, lastSuccessAt: lastSuccessAt || null, lastFailureAt: lastFailureAt || null, lastStatusCode: lastStatusCode || null, verification: verification || null }));
 }
 
 export function getCredentialForVerification(providerIdValue, credentialId) {
@@ -137,6 +138,7 @@ export function selectCredential(providerIdValue) {
   const store = readStore();
   const now = Date.now();
   const candidates = (store.credentials[providerId] || []).filter((entry) => {
+    if (entry.disabled === true) return false;
     if (entry.expiresAt && Date.parse(entry.expiresAt) <= now) return false;
     return !entry.cooldownUntil || Date.parse(entry.cooldownUntil) <= now;
   });
@@ -167,6 +169,20 @@ export function updateCredentialTokens(providerIdValue, credentialId, { apiKey, 
   return true;
 }
 
+export function setCredentialEnabled(providerIdValue, credentialId, enabled = true) {
+  const providerId = normalizeProviderId(providerIdValue);
+  const store = readStore();
+  const entries = store.credentials[providerId] || [];
+  let found = false;
+  store.credentials[providerId] = entries.map((entry) => {
+    if (entry.id !== credentialId) return entry;
+    found = true;
+    return { ...entry, disabled: enabled !== true };
+  });
+  if (found) writeStore(store);
+  return found;
+}
+
 export function markCredentialResult(providerIdValue, credentialId, success, statusCode = null) {
   const providerId = normalizeProviderId(providerIdValue);
   const store = readStore();
@@ -187,7 +203,8 @@ export function getCredentialPoolStatus(providerIdValue) {
   const entries = readStore().credentials[providerId] || [];
   return {
     count: entries.length,
-    ready: entries.filter((entry) => !entry.cooldownUntil || Date.parse(entry.cooldownUntil) <= Date.now()).length,
+    disabled: entries.filter((entry) => entry.disabled === true).length,
+    ready: entries.filter((entry) => entry.disabled !== true && (!entry.cooldownUntil || Date.parse(entry.cooldownUntil) <= Date.now())).length,
     expired: entries.filter((entry) => entry.expiresAt && Date.parse(entry.expiresAt) <= Date.now()).length,
   };
 }
