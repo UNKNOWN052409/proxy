@@ -34,3 +34,23 @@ test("Hugging Face profile exposes official OAuth inference metadata", () => {
   assert.equal(profile.oauthTokenUrl, "https://huggingface.co/oauth/token");
   assert.deepEqual(profile.oauthScopes, ["inference-api", "read-endpoints"]);
 });
+
+test("Azure OpenAI profile exposes official Azure AD OAuth inference metadata", () => {
+  const profile = getDedicatedProviderProfile("azure-openai");
+  assert.ok(profile.authModes.includes("oauth2-authorization-code-pkce"));
+  assert.equal(profile.oauthAuthUrl, "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize");
+  assert.equal(profile.oauthTokenUrl, "https://login.microsoftonline.com/organizations/oauth2/v2.0/token");
+  assert.deepEqual(profile.oauthScopes, ["https://cognitiveservices.azure.com/.default", "offline_access"]);
+});
+
+test("provider normalization preserves Azure OAuth profile metadata", () => {
+  const normalized = configTestables.normalizeProvider({
+    ...getDedicatedProviderProfile("azure-openai"),
+    id: "azure-openai-test",
+    baseUrl: "https://example.openai.azure.com/openai/deployments/prod",
+    authMode: "oauth2-bearer",
+  });
+  assert.equal(normalized.authMode, "oauth2-bearer");
+  assert.equal(normalized.oauthPkce, true);
+  assert.equal(normalized.oauthClientIdEnv, "AZURE_OPENAI_OAUTH_CLIENT_ID");
+});

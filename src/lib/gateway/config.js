@@ -171,6 +171,21 @@ function environmentProviders() {
       authMode: process.env.GATEWAY_GEMINI_AUTH_MODE || (process.env.GEMINI_API_KEY ? "api-key" : "oauth2-bearer"),
     });
   }
+  if (process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_OPENAI_OAUTH_CLIENT_ID) {
+    const profile = getDedicatedProviderProfile("azure-openai");
+    providers.push({
+      ...profile,
+      id: "azure-openai",
+      baseUrl: process.env.GATEWAY_AZURE_OPENAI_BASE_URL || profile.baseUrl,
+      apiKeyEnv: process.env.AZURE_OPENAI_API_KEY ? "AZURE_OPENAI_API_KEY" : null,
+      oauthClientIdEnv: process.env.AZURE_OPENAI_OAUTH_CLIENT_ID ? "AZURE_OPENAI_OAUTH_CLIENT_ID" : null,
+      oauthClientSecretEnv: process.env.AZURE_OPENAI_OAUTH_CLIENT_SECRET ? "AZURE_OPENAI_OAUTH_CLIENT_SECRET" : null,
+      models: splitModels(process.env.GATEWAY_AZURE_OPENAI_MODELS),
+      defaultModel: process.env.GATEWAY_AZURE_OPENAI_DEFAULT_MODEL,
+      authMode: process.env.AZURE_OPENAI_API_KEY ? "api-key" : "oauth2-bearer",
+      requiresBaseUrl: true,
+    });
+  }
   const kiroTokenEnv = process.env.KIRO_AUTH_TOKEN ? "KIRO_AUTH_TOKEN" : (process.env.KIRO_API_KEY ? "KIRO_API_KEY" : null);
   if (kiroTokenEnv) {
     const profile = getDedicatedProviderProfile("kiro");
