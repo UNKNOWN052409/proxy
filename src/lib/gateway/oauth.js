@@ -43,6 +43,9 @@ export function createOAuthAuthorization({ provider, clientId, redirectUri, useP
   url.searchParams.set("redirect_uri", redirectUri || provider.oauthRedirectUri || "");
   if (provider.oauthScopes?.length) url.searchParams.set("scope", provider.oauthScopes.join(" "));
   url.searchParams.set("state", state);
+  for (const [key, value] of Object.entries(provider.oauthQueryParams || {})) {
+    if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+  }
   if (codeChallenge) {
     url.searchParams.set("code_challenge", codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");
@@ -57,10 +60,24 @@ export async function exchangeOAuthCode({ provider, code, state, clientId, clien
   writeStates(states);
   if (!record || record.providerId !== provider.id) throw new Error("OAuth state is invalid or expired");
   if (!provider.oauthTokenUrl || !clientId) throw new Error(`Provider ${provider.id} does not have complete OAuth token metadata`);
-  const params = new URLSearchParams({ grant_type: "authorization_code", code, client_id: clientId, redirect_uri: redirectUri || provider.oauthRedirectUri || "" });
-  if (clientSecret) params.set("client_secret", clientSecret);
-  if (record.codeVerifier) params.set("code_verifier", record.codeVerifier);
-  const response = await fetch(provider.oauthTokenUrl, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: params.toString() });
+  const payload = { grant_type: "authorization_code", code, redirect_uri: redirectUri || provider.oauthRedirectUri || "" };
+  if (provider.oauthTokenAuth !== "basic") payload.client_id = clientId;
+  if (clientSecret && provider.oauthTokenAuth !== "basic") payload.client_secret = clientSecret;
+  if (record.codeVerifier) payload.code_verifier = record.codeVerifier;
+  const headers = { Accept: "application/json" };
+  let body;
+  if (provider.oauthTokenAuth === "basic") {
+    headers.Authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret || ""}`).toString("base64")}`;
+  }
+  if (provider.oauthTokenContentType === "json") {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(payload);
+    if (provider.apiVersion) headers["Notion-Version"] = provider.apiVersion;
+  } else {
+    headers["Content-Type"] = "application/x-www-form-urlencoded";
+    body = new URLSearchParams(payload).toString();
+  }
+  const response = await fetch(provider.oauthTokenUrl, { method: "POST", headers, body });
   const text = await response.text();
   let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = null; }
@@ -74,9 +91,23 @@ export async function refreshOAuthCredential({ provider, clientId, clientSecret 
   if (!provider.oauthTokenUrl || !clientId) throw new Error(`Provider ${provider.id} does not have complete OAuth token metadata`);
   const selected = selectCredential(provider.id);
   if (!selected?.refreshToken) throw new Error(`Provider ${provider.id} has no encrypted OAuth refresh token`);
-  const params = new URLSearchParams({ grant_type: "refresh_token", refresh_token: selected.refreshToken, client_id: clientId });
-  if (clientSecret) params.set("client_secret", clientSecret);
-  const response = await fetch(provider.oauthTokenUrl, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: params.toString() });
+  const payload = { grant_type: "refresh_token", refresh_token: selected.refreshToken };
+  if (provider.oauthTokenAuth !== "basic") payload.client_id = clientId;
+  if (clientSecret && provider.oauthTokenAuth !== "basic") payload.client_secret = clientSecret;
+  const headers = { Accept: "application/json" };
+  let body;
+  if (provider.oauthTokenAuth === "basic") {
+    headers.Authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret || ""}`).toString("base64")}`;
+  }
+  if (provider.oauthTokenContentType === "json") {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(payload);
+    if (provider.apiVersion) headers["Notion-Version"] = provider.apiVersion;
+  } else {
+    headers["Content-Type"] = "application/x-www-form-urlencoded";
+    body = new URLSearchParams(payload).toString();
+  }
+  const response = await fetch(provider.oauthTokenUrl, { method: "POST", headers, body });
   const text = await response.text();
   let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = null; }

@@ -2,8 +2,8 @@ import { getGatewayNotifications, getGatewayRuntimeState, getProviderModels, get
 import { getCredentialPoolStatus, markCredentialResult, selectCredential } from "./credentials.js";
 import { getDedicatedProviderProfile, listDedicatedProviderProfiles } from "./providers/dedicated.js";
 
-const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "GEMINI_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "MIMO_", "XIAOMI_", "GITLAB_", "LOVABLE_", "KIRO_", "DEEPSEEK_", "GROQ_", "PERPLEXITY_", "MISTRAL_", "COHERE_", "HUGGINGFACE_", "VERTEX_", "AZURE_"];
-const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic", "gemini", "gitlab", "bedrock", "custom"]);
+const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "GEMINI_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "MIMO_", "XIAOMI_", "GITLAB_", "LOVABLE_", "KIRO_", "DEEPSEEK_", "GROQ_", "PERPLEXITY_", "MISTRAL_", "COHERE_", "HUGGINGFACE_", "VERTEX_", "AZURE_", "NOTION_", "WINDSURF_"];
+const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic", "gemini", "gitlab", "bedrock", "custom", "connector"]);
 
 function splitModels(value) {
   if (Array.isArray(value)) return value.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim());
@@ -118,10 +118,21 @@ function normalizeProvider(provider) {
     oauthTokenUrl: provider.oauthTokenUrl ? normalizeBaseUrl(provider.oauthTokenUrl, `${id} OAuth token`) : null,
     oauthClientIdEnv: provider.oauthClientIdEnv ? String(provider.oauthClientIdEnv).trim() : null,
     oauthClientSecretEnv: provider.oauthClientSecretEnv ? String(provider.oauthClientSecretEnv).trim() : null,
-    oauthScopes: Array.isArray(provider.oauthScopes) ? provider.oauthScopes.map((scope) => String(scope).trim()).filter(Boolean).slice(0, 30) : [],
+    oauthTokenAuth: String(provider.oauthTokenAuth || profile?.oauthTokenAuth || "").trim().toLowerCase() || null,
+    oauthTokenContentType: String(provider.oauthTokenContentType || profile?.oauthTokenContentType || "").trim().toLowerCase() || null,
+    oauthQueryParams: provider.oauthQueryParams && typeof provider.oauthQueryParams === "object" ? { ...provider.oauthQueryParams } : (profile?.oauthQueryParams || {}),
+    oauthScopes: Array.isArray(provider.oauthScopes) ? provider.oauthScopes.map((scope) => String(scope).trim()).filter(Boolean).slice(0, 30) : (Array.isArray(profile?.oauthScopes) ? profile.oauthScopes : []),
     oauthRedirectUri: provider.oauthRedirectUri ? String(provider.oauthRedirectUri).trim().slice(0, 512) : null,
     oauthPkce: provider.oauthPkce === true || profile?.oauthPkce === true,
     oauthOnly: provider.oauthOnly === true || profile?.oauthOnly === true,
+    connectorOnly: provider.connectorOnly === true || profile?.connectorOnly === true,
+    connectorType: provider.connectorType || profile?.connectorType || null,
+    serviceKeyEnv: provider.serviceKeyEnv || profile?.serviceKeyEnv || null,
+    apiVersion: provider.apiVersion || profile?.apiVersion || null,
+    availabilityNote: provider.availabilityNote || profile?.availabilityNote || null,
+    catalogOnly: provider.catalogOnly === true || profile?.catalogOnly === true,
+    freeTierCatalog: provider.freeTierCatalog === true || profile?.freeTierCatalog === true,
+    localOnly: provider.localOnly === true || profile?.localOnly === true,
   };
 }
 
