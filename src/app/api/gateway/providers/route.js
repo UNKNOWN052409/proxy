@@ -54,7 +54,9 @@ export async function POST(request) {
         baseUrl,
         apiKey,
         allowInsecureHttp: body.allowInsecureHttp === true,
-        liveTest: false,
+        liveTest: body.liveTest === true,
+        verifyOne: body.verifyOne === true,
+        testPrompt: typeof body.prompt === "string" ? body.prompt.trim().slice(0, 4000) : undefined,
       });
       return NextResponse.json({ ok: true, detection });
     }
@@ -74,7 +76,7 @@ export async function POST(request) {
       const providerId = String(body.providerId || "").trim().toLowerCase();
       const baseUrl = String(body.baseUrl || "").trim();
       const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
-      if (!providerId || !baseUrl || !apiKey) return error("providerId, baseUrl, and an authorized API key are required");
+      if (!providerId || !baseUrl) return error("providerId and baseUrl are required");
       const before = getGatewayRuntimeState();
       const models = Array.isArray(body.models) ? body.models : [];
       const requestedType = String(body.providerType || body.type || "openai").trim().toLowerCase();
@@ -82,7 +84,7 @@ export async function POST(request) {
       const prefix = String(body.prefix || "").trim().replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 64);
       const normalizedType = requestedType === "custom-path" ? "custom" : requestedType;
       mergeProviderConfiguration({ providers: [{ id: providerId, label: body.label || providerId, prefix: prefix || undefined, type: normalizedType, adapter: requestedType, baseUrl, models, insecureHttp: body.allowInsecureHttp === true, supportsTools: body.supportsTools === true, supportsVision: body.supportsVision === true }] });
-      importEncryptedCredentials(providerId, [{ label: "custom-endpoint", apiKey }]);
+      if (apiKey) importEncryptedCredentials(providerId, [{ label: "custom-endpoint", apiKey }]);
       try {
         getGatewayProviders();
       } catch (validationError) {

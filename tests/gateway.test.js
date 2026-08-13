@@ -37,7 +37,7 @@ test("custom endpoint detection uses documented contracts and redacts sensitive 
     ["https://api.example.test/v1/models", { status: 401, headers: new Headers({ "content-type": "application/json" }), json: { error: "unauthorized" } }],
   ]);
   const result = await detectCustomEndpoint({ baseUrl: "https://api.example.test/v1", apiKey: "secret", fetchImpl: async (url, options) => {
-    assert.equal(options.headers.authorization, "Bearer secret");
+    if (String(url).endsWith("/v1/models") && responses.get(String(url))?.status === 401) assert.equal(options.headers.authorization, "Bearer secret");
     const item = responses.get(String(url));
     return { status: item?.status || 404, headers: item?.headers || new Headers(), text: async () => JSON.stringify(item?.json || {}) };
   } });
@@ -451,4 +451,30 @@ test("CLI setup wizard emits provider-specific artifacts without secrets", () =>
   assert.match(claude.content, /ANTHROPIC_BASE_URL/);
   assert.match(claude.content, /GATEWAY_API_KEY/);
   assert.equal(claude.content.includes("cookie"), false);
+});
+
+
+test("custom endpoint discovers models without a key, retries only after auth failure, and verifies once", async () => {
+  const calls = [];
+  const result = await detectCustomEndpoint({
+    baseUrl: "https://live.example.test/v1",
+    apiKey: "secret",
+    verifyOne: true,
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), authorization: options.headers.authorization || null, method: options.method || "GET" });
+      if (String(url).endsWith("/v1/models")) {
+        if (!options.headers.authorization) return { status: 401, headers: new Headers({ "content-type": "application/json" }), text: async () => JSON.stringify({ error: "auth required" }) };
+        return { status: 200, headers: new Headers({ "content-type": "application/json" }), text: async () => JSON.stringify({ data: [{ id: "live-model" }] }) };
+      }
+      if (String(url).endsWith("/v1/chat/completions")) {
+        return { status: 200, headers: new Headers({ "content-type": "application/json" }), text: async () => JSON.stringify({ id: "cmpl-live", model: "live-model", choices: [{ message: { role: "assistant", content: "gateway-test-ok" } }] }) };
+      }
+      return { status: 404, headers: new Headers(), text: async () => "{}" };
+    },
+  });
+  assert.deepEqual(result.models, ["live-model"]);
+  assert.equal(result.oneRequest.ok, true);
+  assert.equal(calls.filter((call) => call.method === "POST").length, 1);
+  assert.equal(calls.filter((call) => call.method === "GET").length, 7);
+  assert.equal(calls.some((call) => call.authorization === "Bearer secret"), true);
 });

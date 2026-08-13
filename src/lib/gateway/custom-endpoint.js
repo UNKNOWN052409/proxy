@@ -71,6 +71,52 @@ async function requestJson(url, { apiKey, fetchImpl, timeoutMs = 5000 } = {}) {
   }
 }
 
+async function requestCompletionOnce(baseUrl, { apiKey, model, fetchImpl = fetch, timeoutMs = 5000, prompt = "Reply with exactly: gateway-test-ok" } = {}) {
+  const target = /\/v1\/?$/i.test(baseUrl) ? `${baseUrl.replace(/\/$/, "")}/chat/completions` : `${baseUrl.replace(/\/$/, "")}/v1/chat/completions`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.min(Math.max(Number(timeoutMs) || 5000, 500), 8000));
+  const started = Date.now();
+  try {
+    const headers = { accept: "application/json", "content-type": "application/json" };
+    if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+    const response = await fetchImpl(target, {
+      method: "POST",
+      headers,
+      signal: controller.signal,
+      redirect: "manual",
+      body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], stream: false }),
+    });
+    const text = await response.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* bounded evidence only */ }
+    const ok = typeof response.ok === "boolean" ? response.ok : response.status >= 200 && response.status < 300;
+    return {
+      ok,
+      status: response.status,
+      latencyMs: Date.now() - started,
+      model: json?.model || null,
+      responseShape: json && typeof json === "object" ? Object.keys(json).slice(0, 20) : ["text"],
+      responsePreview: redactText(json?.choices?.[0]?.message?.content || json?.output || text),
+      contentType: response.headers.get("content-type") || null,
+      error: ok ? null : `HTTP ${response.status}`,
+      traffic: "one-explicit-request",
+    };
+  } catch (error) {
+    return { ok: false, latencyMs: Date.now() - started, error: error.name === "AbortError" ? "timeout" : redactText(error.message), traffic: "one-explicit-request" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestJsonWithCredentialFallback(url, { apiKey, fetchImpl, timeoutMs = 5000 } = {}) {
+  const anonymous = await requestJson(url, { apiKey: undefined, fetchImpl, timeoutMs });
+  if ((anonymous.status === 401 || anonymous.status === 403) && apiKey) {
+    const authenticated = await requestJson(url, { apiKey, fetchImpl, timeoutMs });
+    return { ...authenticated, authRequired: true, anonymousStatus: anonymous.status };
+  }
+  return { ...anonymous, authRequired: false };
+}
+
 function inferFromSpec(spec) {
   if (!spec || typeof spec !== "object") return null;
   const paths = Object.keys(spec.paths || {});
@@ -124,7 +170,7 @@ export async function testPromptTemplate({ endpointUrl, prompt = "Reply with exa
   }
 }
 
-export async function detectCustomEndpoint({ baseUrl, apiKey, fetchImpl = fetch, timeoutMs = 5000, allowInsecureHttp = false, liveTest = false, testPrompt, testMethod } = {}) {
+export async function detectCustomEndpoint({ baseUrl, apiKey, fetchImpl = fetch, timeoutMs = 5000, allowInsecureHttp = false, liveTest = false, verifyOne = false, testPrompt, testMethod } = {}) {
   const normalizedBaseUrl = normalizeCustomEndpointUrl(baseUrl, { allowInsecureHttp });
   const evidence = [];
   const checks = [];
@@ -165,7 +211,7 @@ export async function detectCustomEndpoint({ baseUrl, apiKey, fetchImpl = fetch,
   }
   for (const path of SPEC_PATHS) {
     try {
-      const result = await requestJson(joinUrl(normalizedBaseUrl, path), { apiKey, fetchImpl, timeoutMs });
+      const result = await requestJsonWithCredentialFallback(joinUrl(normalizedBaseUrl, path), { apiKey, fetchImpl, timeoutMs });
       checks.push({ path, status: result.status, contentType: result.contentType });
       const inferred = inferFromSpec(result.json);
       if (inferred) detectedType = inferred;
@@ -175,7 +221,7 @@ export async function detectCustomEndpoint({ baseUrl, apiKey, fetchImpl = fetch,
   }
   for (const path of MODEL_PATHS) {
     try {
-      const result = await requestJson(joinUrl(normalizedBaseUrl, path), { apiKey, fetchImpl, timeoutMs });
+      const result = await requestJsonWithCredentialFallback(joinUrl(normalizedBaseUrl, path), { apiKey, fetchImpl, timeoutMs });
       checks.push({ path, status: result.status, contentType: result.contentType });
       const ids = modelIds(result.json);
       if (ids.length) models = [...new Set([...models, ...ids])];
@@ -183,7 +229,12 @@ export async function detectCustomEndpoint({ baseUrl, apiKey, fetchImpl = fetch,
       if (result.status === 401 || result.status === 403) evidence.push(`auth_boundary:${path}:${result.status}`);
     } catch (error) { checks.push({ path, error: error.name === "AbortError" ? "timeout" : "request_failed" }); }
   }
-  return { baseUrl: normalizedBaseUrl, detectedType: detectedType || "unknown", adapter: detectedType === "anthropic" ? "anthropic" : detectedType === "openai" ? "openai" : "custom", models, checks, evidence, autoConfigured: detectedType === "openai" || detectedType === "anthropic", requiresLiveTest: false, traffic: "metadata-probes", limitations: ["Detection uses documented HTTP contracts only", "No browser traffic, cookies, sessions, or private endpoints are inspected", "Unknown contracts require explicit request/response mapping"] };
+  let oneRequest = null;
+  if (verifyOne && models[0]) {
+    oneRequest = await requestCompletionOnce(normalizedBaseUrl, { apiKey, model: models[0], fetchImpl, timeoutMs, prompt: testPrompt });
+    evidence.push(`one_request:${oneRequest.ok ? "success" : "failed"}`);
+  }
+  return { baseUrl: normalizedBaseUrl, detectedType: detectedType || "unknown", adapter: detectedType === "anthropic" ? "anthropic" : detectedType === "openai" ? "openai" : "custom", models, checks, evidence, autoConfigured: detectedType === "openai" || detectedType === "anthropic", requiresLiveTest: Boolean(verifyOne && !oneRequest), traffic: oneRequest ? "metadata-probes-plus-one-request" : "metadata-probes", oneRequest, limitations: ["Detection uses documented HTTP contracts only", "No browser traffic, cookies, sessions, or private endpoints are inspected", "Unknown contracts require explicit request/response mapping", ...(verifyOne ? ["At most one completion request is sent"] : [])] };
 }
 
-export const __testables = { inferFromSpec, modelIds, safeHeaders, hasPromptTemplate, templateUrl, pathModelId };
+export const __testables = { inferFromSpec, modelIds, safeHeaders, hasPromptTemplate, templateUrl, pathModelId, requestJsonWithCredentialFallback, requestCompletionOnce };

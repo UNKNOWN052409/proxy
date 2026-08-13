@@ -509,3 +509,12 @@ The Settings page now provides a **CLI setup wizard**, rather than only a generi
 Supported profiles are Pi Mono, Prime, Claude Code CLI, Codex CLI, OpenCode, Gemini CLI, Qwen CLI, Kimi CLI, Grok CLI, JCode CLI, and Custom CLI. OpenCode emits an `opencode.json` provider configuration and is restricted to loopback/private URLs. Codex emits a TOML preview for `~/.codex/config.toml`. Claude Code emits an environment-file template using `ANTHROPIC_BASE_URL` and `ANTHROPIC_API_KEY`. Other profiles emit documented OpenAI-compatible environment templates where the installed client supports custom endpoints.
 
 The generated artifact contains the gateway URL and a `$GATEWAY_API_KEY` placeholder only. It never contains a real provider secret, browser cookie, session token, password, or undocumented OAuth state. The wizard does not claim that every third-party CLI supports arbitrary base URLs; the install note instructs the user to confirm the installed version's documented configuration behavior. Applying a file to a user's home directory is intentionally a user-side download/copy action, not a server-side write.
+
+
+## No-key-first custom endpoint verification
+
+Custom endpoint onboarding now follows a bounded discovery flow. The gateway first probes only documented model/spec paths without an API key. If a documented endpoint returns HTTP 401 or 403 and an authorized API key was supplied, that same path is retried with the key. Transport failures, 404 responses, HTML pages, and arbitrary undocumented routes do not trigger credential retry.
+
+After a model catalog is discovered, the caller may request `verifyOne: true`. The gateway then sends at most one OpenAI-shaped completion request using the first discovered model. The response is reduced to redacted status, latency, response shape, and a short redacted preview. No cookies, browser sessions, private headers, hidden routes, or MITM traffic are used.
+
+The supplied `vip.prexzyapis.com` endpoint was tested with this flow on 2026-08-13. The anonymous `/v1/models` request failed during TLS negotiation with `SSL_ERROR_SYSCALL`, not with HTTP 401/403. Consequently, no authenticated retry and no completion request were sent. This is recorded as an unavailable live endpoint, not as a successful model import.
