@@ -12,7 +12,7 @@ export async function GET(request, { params }) {
     const provider = getGatewayProviders().find((entry) => entry.id === String(params.provider || "").toLowerCase());
     if (!provider) return NextResponse.json({ error: "Unknown provider" }, { status: 404 });
     const clientIdEnv = provider.oauthClientIdEnv;
-    const clientId = clientIdEnv ? process.env[clientIdEnv] : null;
+    const clientId = (clientIdEnv ? process.env[clientIdEnv] : null) || provider.oauthClientId || null;
     const redirectUri = provider.oauthRedirectUri || `${new URL(request.url).origin}/api/gateway/oauth/${provider.id}/callback`;
     const result = createOAuthAuthorization({ provider, clientId, redirectUri });
     return NextResponse.json({ ok: true, providerId: provider.id, redirectUri, ...result });

@@ -42,3 +42,34 @@ OmniRoute publishes a broad catalog but its “no-auth” category is heterogene
 The gateway should therefore classify candidates into: local no-auth (Ollama, LM Studio, local OpenCode), documented public endpoint (only after endpoint contract and terms are verified), provider API key/free tier, OAuth, and catalog-only candidate. It must not copy web-cookie, localStorage-token, browser-session, fingerprint bootstrap, or hidden endpoint flows merely because OmniRoute exposes them.
 
 Qwen’s current official authentication documentation says the prior Qwen OAuth free tier was discontinued on 2026-04-15. Current supported paths are Alibaba ModelStudio Coding Plan, Token Plan, Standard API Key, third-party API keys, or custom OpenAI/Anthropic/Gemini-compatible endpoints. The cited Qwen issue records a proposed transition from 1,000 requests/day to 100 requests/day before closing the OAuth free entry point; this historical figure must not be treated as a current per-account quota. Current Qwen limits depend on the selected Alibaba plan/model/region and should be obtained from account/API response headers or the active plan documentation, not guessed globally.
+
+## Hermes Agent free-tier OAuth audit (2026-08-13)
+
+Sources reviewed:
+
+- https://github.com/NousResearch/hermes-agent/blob/main/website/docs/integrations/providers.md
+- https://github.com/NousResearch/hermes-agent/blob/main/website/docs/developer-guide/adding-providers.md
+- https://hermes-agent.nousresearch.com/docs/integrations/providers
+
+Hermes officially documents several authentication paths: Nous Portal OAuth, OpenAI Codex ChatGPT device-code OAuth, GitHub Copilot OAuth device code, Anthropic OAuth for eligible Claude Max plus extra usage, xAI Grok OAuth for eligible SuperGrok/Premium+ accounts, Google Vertex service-account/ADC, and local providers such as Ollama/LM Studio. It also lists Qwen OAuth and MiniMax OAuth in its provider menu, but Qwen’s own current documentation says the Qwen OAuth free tier was discontinued on 2026-04-15; Hermes’ provider listing alone is not proof that new Qwen OAuth accounts still work.
+
+Hermes documents API-key paths for Qwen/Alibaba, MiMo, Kilo, OpenCode Zen, OpenCode Go, Hugging Face, Gemini, DeepSeek, Kimi, GLM, NVIDIA and others. It separately documents local CLI or endpoint integrations. The Hermes provider-development guide says OAuth providers require a real auth-store/token-refresh implementation and that a simple OpenAI-compatible endpoint should remain a custom provider instead of being misclassified as OAuth.
+
+Potentially eligible gateway additions are official device-code/authorization flows with provider consent: OpenAI Codex, GitHub Copilot, Nous Portal, and xAI Grok OAuth, subject to each provider’s client registration, scopes, terms, and quota. Qwen OAuth should remain marked discontinued unless an active official flow is independently verified. No browser cookie, localStorage-token, DevTools capture, hidden endpoint, or session scraping is considered an OAuth implementation.
+
+## Grok availability in 9Router / OmniRoute / CLIProxy (2026-08-13)
+
+Sources reviewed:
+
+- https://github.com/decolua/9router/issues/1285
+- https://github.com/diegosouzapw/OmniRoute/issues/2760
+- https://github.com/diegosouzapw/OmniRoute/wiki/Provider-Reference
+- https://help.router-for.me/configuration/provider/xai
+
+9Router’s public issue #1285 describes first-class xAI/Grok OAuth with PKCE and a loopback callback on 127.0.0.1:56121, plus API-key routing, Responses/Chat/Anthropic/Gemini translators, image/video routes, and refresh/re-auth handling. The issue was closed as completed, but it explicitly references CLIProxyAPI as the implementation model; it is not evidence of a free/no-auth Grok entitlement.
+
+OmniRoute issue #2760 describes xAI Grok OAuth for SuperGrok/X Premium+ and says the existing grok-web route is a web-cookie provider. The issue text proposes xai-oauth/grok-oauth but the maintainer response says it was accepted/cataloged for a future implementation, not proof that the OAuth implementation shipped in that issue. The OmniRoute wiki separately lists grok-web as a web-cookie provider, which is outside this gateway’s safe boundary.
+
+CLIProxyAPI’s public documentation confirms an xAI OAuth login command, a local loopback callback on 127.0.0.1:56121, xAI Responses API routing, OpenAI-compatible chat/responses routes, image/video routes, and model aliases. This is subscription/entitlement-backed Grok Build access, not a free anonymous upstream. Provider-side 403s may still occur for accounts without the required SuperGrok/X Premium+ entitlement.
+
+Safe implementation conclusion: add a clearly labeled `xai-oauth` subscription OAuth provider only if using an official/public OAuth contract and user consent; do not add `grok-web` cookie import, web-session scraping, or claim no-auth/free access. The existing `grok` API-key provider remains valid. External translation can normalize documented OpenAI/Responses requests, but cannot bypass xAI entitlement or make protected web routes legitimate API endpoints.

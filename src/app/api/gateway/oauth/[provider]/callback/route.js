@@ -15,7 +15,7 @@ export async function GET(request, { params }) {
   try {
     const provider = getGatewayProviders().find((entry) => entry.id === String(params.provider || "").toLowerCase());
     if (!provider) return NextResponse.json({ error: "Unknown provider" }, { status: 404 });
-    const clientId = provider.oauthClientIdEnv ? process.env[provider.oauthClientIdEnv] : null;
+    const clientId = (provider.oauthClientIdEnv ? process.env[provider.oauthClientIdEnv] : null) || provider.oauthClientId || null;
     const clientSecret = provider.oauthClientSecretEnv ? process.env[provider.oauthClientSecretEnv] : null;
     const redirectUri = provider.oauthRedirectUri || `${url.origin}/api/gateway/oauth/${provider.id}/callback`;
     const result = await exchangeOAuthCode({ provider, code, state, clientId, clientSecret, redirectUri });
