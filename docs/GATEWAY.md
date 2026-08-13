@@ -461,3 +461,13 @@ Black-box canaries, TTFT profiling, context probes, model-list consistency, and 
 [4] OpenAI, [API authentication](https://platform.openai.com/docs/api-reference/authentication).
 
 [5] OpenCode, [Configuration documentation](https://opencode.ai/docs/config/).
+
+## Request reliability and external native-tool layer
+
+The authenticated `/v1/chat/completions` boundary now adds a bounded reliability layer before provider dispatch. Requests are queued with high, normal, or low priority and a default maximum concurrency of 50, so bursts such as ten simultaneous requests are managed rather than dropped. The limit can be changed with `GATEWAY_MAX_CONCURRENCY`.
+
+Upstream calls use a default five-second timeout (`GATEWAY_UPSTREAM_TIMEOUT_MS`) and one retry after a five-second delay for timeouts, transient network failures, HTTP 408/425/429, and 5xx responses. Clients that require deduplication should send an `Idempotency-Key`; the gateway caches the result reference for five minutes and forwards that key to OpenAI-compatible upstreams.
+
+The external tool layer validates OpenAI function schemas, `tool_choice`, `tool_call_id` references, tool result content, declared-tool permissions, and `parallel_tool_calls`. Native provider responses are normalized to stable OpenAI tool-call IDs and JSON arguments. Providers without native tool support use the existing client-managed shim, which returns tool calls but never executes them. Streaming responses are emitted through the gateway SSE adapter; tool-call frames are normalized before emission, while actual tool execution remains the responsibility of the client or an explicitly authorized external tool runner.
+
+The diagnostics endpoint exposes only queue counters, timeout/retry configuration, idempotency-entry count, and provider health metadata. It never exposes request bodies, API keys, cookies, session material, or tool arguments. A failed provider may still be routed to an explicitly configured fallback provider subject to the API key's provider/model permissions.

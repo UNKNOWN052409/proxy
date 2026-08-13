@@ -19,6 +19,11 @@ export async function POST(request) {
     } catch {
       throw gatewayError("Request body must contain valid JSON");
     }
+    const idempotencyKey = request.headers.get("idempotency-key");
+    const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
+    body.idempotency_key = body.idempotency_key || idempotencyKey || undefined;
+    body.request_id = requestId;
+    body.priority = body.priority || request.headers.get("x-gateway-priority") || "normal";
     validateChatRequest(body);
     const providerId = body.provider || body.provider_id || null;
     if (!canUse({ provider_ids: keyRecord.provider_ids || [], model_ids: keyRecord.model_ids || [] }, { providerId, modelId: body.model })) {

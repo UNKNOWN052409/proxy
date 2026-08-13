@@ -1,6 +1,7 @@
 import { getGatewayProviders, resolveProvider, resolveProviderById } from "./config.js";
 import { createChatCompletion, gatewayError, hasImages, messageText } from "./openai.js";
-import { buildToolInstruction, parseClientManagedToolResponse } from "./tools.js";
+import { buildToolInstruction, normalizeNativeToolCompletion, normalizeNativeToolRequest, parseClientManagedToolResponse } from "./tools.js";
+import { getReliabilityStats, runReliable } from "./reliability.js";
 import { convertImagesToText } from "./vision.js";
 import { executeOpenAi, describeImageWithOpenAi } from "./providers/openai.js";
 import { executeAnthropic, describeImageWithAnthropic } from "./providers/anthropic.js";
@@ -121,6 +122,7 @@ function fallbackSelections(initial, requestedModel) {
 async function executeSelection(selection, body, startedAt) {
   const { provider, model, apiKey } = selection;
   const messages = await withVisionFallback({ provider, messages: body.messages });
+  const toolContract = normalizeNativeToolRequest({ messages, tools: body.tools || [], toolChoice: body.tool_choice, parallelToolCalls: body.parallel_tool_calls, permissions: body.tool_permissions });
 
   if (Array.isArray(body.tools) && body.tools.length > 0 && !provider.supportsTools) {
     const shimmedMessages = toolShimMessages(messages, body.tools, body.tool_choice);
@@ -133,10 +135,11 @@ async function executeSelection(selection, body, startedAt) {
     return { completion, provider, model, mode: "client_managed_tools" };
   }
 
-  const result = await executorFor(provider)({ provider, apiKey, body, model, messages, tools: body.tools || [] });
+  const result = await executorFor(provider)({ provider, apiKey, body: { ...body, tool_choice: toolContract.tool_choice, parallel_tool_calls: toolContract.parallel_tool_calls }, model, messages, tools: toolContract.tools });
+  const completion = provider.supportsTools && toolContract.tools.length ? normalizeNativeToolCompletion({ completion: result.completion, tools: toolContract.tools, model: `${provider.id}/${model}`, parallelToolCalls: toolContract.parallel_tool_calls }) : result.completion;
   selection.markCredentialResult?.(true, 200);
-  recordUsage({ provider, model, completion: result.completion, startedAt, success: true });
-  return { completion: result.completion, provider, model, mode: provider.supportsTools ? "native_tools" : "chat" };
+  recordUsage({ provider, model, completion, startedAt, success: true });
+  return { completion, provider, model, mode: provider.supportsTools ? "native_tools" : "chat" };
 }
 
 export async function executeGatewayChat(body) {
@@ -149,7 +152,8 @@ export async function executeGatewayChat(body) {
     for (let index = 0; index < candidates.length; index += 1) {
       const candidate = candidates[index];
       try {
-        return await executeSelection(candidate, body, startedAt);
+        const idempotencyKey = body.idempotency_key || body.idempotencyKey || null;
+        return await runReliable({ operation: () => executeSelection(candidate, body, startedAt), idempotencyKey, priority: body.priority || "normal", requestId: body.request_id || idempotencyKey || `${candidate.provider.id}:${candidate.model}:${startedAt}`, onRetry: ({ attempt }) => { console.warn(JSON.stringify({ event: "gateway_route_retry", provider: candidate.provider.id, model: candidate.model, attempt })); } });
       } catch (error) {
         candidate.markCredentialResult?.(false, error?.status || error?.statusCode || null);
         recordUsage({ provider: candidate.provider, model: candidate.model, completion: null, startedAt, success: false, error: error.message });
@@ -172,6 +176,7 @@ export function getGatewayDiagnostics() {
       modelsConfigured: provider.models.length,
       defaultModel: provider.defaultModel || null,
     })),
+    reliability: getReliabilityStats(),
     controls: {
       thirdPartyInterception: false,
       cookieToApiConversion: false,

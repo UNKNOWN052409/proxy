@@ -33,7 +33,7 @@ function buildPayload({ body, model, messages, tools }) {
   return payload;
 }
 
-async function postJson(url, options, timeoutMs = 60_000) {
+async function postJson(url, options, timeoutMs = Number(process.env.GATEWAY_UPSTREAM_TIMEOUT_MS || 5_000)) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -66,6 +66,7 @@ export async function executeOpenAi({ provider, apiKey, body, model, messages, t
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...(body.idempotency_key || body.idempotencyKey ? { "Idempotency-Key": String(body.idempotency_key || body.idempotencyKey).slice(0, 200) } : {}),
       ...authHeader,
       ...safeConfiguredHeaders(provider.headers),
     },

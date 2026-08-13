@@ -27,12 +27,14 @@ function normalizeTools(tools) {
     if (Buffer.byteLength(safeJson(parameters), "utf8") > MAX_TOOL_SCHEMA_BYTES) {
       throw gatewayError(`Tool schema for ${name} is too large`);
     }
+    const permissions = Array.isArray(tool.function.permissions) ? tool.function.permissions.map((item) => String(item).slice(0, 80)).slice(0, 16) : [];
     return {
       type: "function",
       function: {
         name,
         description: String(tool.function.description || "").slice(0, 4000),
         parameters,
+        permissions,
       },
     };
   });
@@ -78,6 +80,52 @@ function parseArguments(raw, name) {
   throw gatewayError(`Tool ${name} returned invalid arguments`, 502, "upstream_error");
 }
 
+function validateToolChoice(toolChoice, allowed) {
+  if (!toolChoice || toolChoice === "auto" || toolChoice === "none" || toolChoice === "required") return;
+  const name = toolChoice?.function?.name;
+  if (typeof name !== "string" || !allowed.has(name)) throw gatewayError("tool_choice references an undeclared tool", 400, "invalid_request_error");
+}
+
+function validateToolResultMessages(messages, calls = new Set()) {
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (message?.role !== "tool") continue;
+    const id = String(message.tool_call_id || "");
+    if (!id || calls.size === 0 || !calls.has(id)) throw gatewayError("Tool result references an unknown tool_call_id", 400, "invalid_request_error");
+    if (typeof message.content !== "string" && !Array.isArray(message.content)) throw gatewayError("Tool result content must be text or content parts", 400, "invalid_request_error");
+  }
+}
+
+export function normalizeNativeToolRequest({ messages, tools, toolChoice, parallelToolCalls = true, permissions = {} }) {
+  const normalized = normalizeTools(tools);
+  const allowed = new Map(normalized.map((tool) => [tool.function.name, tool.function]));
+  validateToolChoice(toolChoice, allowed);
+  const calls = new Set();
+  for (const message of Array.isArray(messages) ? messages : []) {
+    for (const call of Array.isArray(message?.tool_calls) ? message.tool_calls : []) {
+      if (!allowed.has(call?.function?.name)) throw gatewayError("Assistant requested an undeclared tool", 400, "invalid_request_error");
+      if (call.id) calls.add(String(call.id));
+    }
+  }
+  validateToolResultMessages(messages, calls);
+  const permitted = Object.fromEntries(Object.entries(permissions || {}).filter(([name, value]) => allowed.has(name) && value !== false));
+  return { tools: normalized, tool_choice: toolChoice, parallel_tool_calls: parallelToolCalls !== false, permissions: permitted };
+}
+
+export function normalizeNativeToolCompletion({ completion, tools, model, parallelToolCalls = true }) {
+  const normalized = normalizeTools(tools);
+  const allowed = new Map(normalized.map((tool) => [tool.function.name, tool.function]));
+  const choice = completion?.choices?.[0];
+  const message = choice?.message || {};
+  const calls = Array.isArray(message.tool_calls) ? message.tool_calls.slice(0, parallelToolCalls === false ? 1 : MAX_TOOLS) : [];
+  const toolCalls = calls.map((call, index) => {
+    const name = String(call?.function?.name || "");
+    if (!allowed.has(name)) throw gatewayError(`Model requested an undeclared tool: ${name || "(empty)"}`, 502, "upstream_error");
+    const id = String(call.id || `call_${crypto.randomUUID().replaceAll("-", "").slice(0, 24)}`);
+    return { id, type: "function", function: { name, arguments: parseArguments(call?.function?.arguments, name) } };
+  });
+  return createChatCompletion({ model, content: toolCalls.length ? null : message.content ?? "", toolCalls, finishReason: toolCalls.length ? "tool_calls" : (choice.finish_reason || "stop"), usage: completion?.usage });
+}
+
 export function parseClientManagedToolResponse({ text, tools, model }) {
   const normalized = normalizeTools(tools);
   const response = extractJsonObject(text);
@@ -112,4 +160,4 @@ export function toAnthropicTools(tools) {
   }));
 }
 
-export const __testables = { normalizeTools, extractJsonObject };
+export const __testables = { normalizeTools, extractJsonObject, validateToolChoice, validateToolResultMessages };

@@ -4,7 +4,8 @@ import net from "node:net";
 import http from "node:http";
 
 import { __testables as config } from "../src/lib/gateway/config.js";
-import { parseClientManagedToolResponse } from "../src/lib/gateway/tools.js";
+import { normalizeNativeToolRequest, normalizeNativeToolCompletion, parseClientManagedToolResponse } from "../src/lib/gateway/tools.js";
+import { runReliable, getReliabilityStats, clearReliabilityState } from "../src/lib/gateway/reliability.js";
 import { validateImageUrl, countImages } from "../src/lib/gateway/vision.js";
 import { createChatCompletion, messageText } from "../src/lib/gateway/openai.js";
 import { __testables as runtime, getGatewayRuntimeState, importProviderModels, restoreGatewayRuntimeState } from "../src/lib/gateway/runtime-store.js";
@@ -353,4 +354,48 @@ test("authenticity scoring keeps bounded context probes as evidence, not proof",
   assert.equal(result.status, "provisionally_consistent");
   assert.equal(result.failedContexts, 0);
   assert.match(result.limitation, /cannot mathematically prove/i);
+});
+
+test("native tool layer preserves schemas, permissions, IDs, results, and parallel-call policy", () => {
+  const contract = normalizeNativeToolRequest({
+    messages: [{ role: "assistant", tool_calls: [{ id: "call_1", type: "function", function: { name: "get_weather", arguments: "{}" } }] }, { role: "tool", tool_call_id: "call_1", content: "12C" }],
+    tools: [{ ...tools[0], function: { ...tools[0].function, permissions: ["network:weather"] } }],
+    toolChoice: { type: "function", function: { name: "get_weather" } },
+    parallelToolCalls: false,
+    permissions: { get_weather: true, unknown: true },
+  });
+  assert.equal(contract.parallel_tool_calls, false);
+  assert.deepEqual(contract.permissions, { get_weather: true });
+  const completion = normalizeNativeToolCompletion({
+    model: "primary/model",
+    tools,
+    parallelToolCalls: false,
+    completion: { choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "get_weather", arguments: JSON.stringify({ city: "Delhi" }) } }, { id: "call_2", type: "function", function: { name: "get_weather", arguments: JSON.stringify({ city: "Pune" }) } }] } }] },
+  });
+  assert.equal(completion.choices[0].message.tool_calls.length, 1);
+  assert.equal(completion.choices[0].message.tool_calls[0].id, "call_1");
+  assert.throws(() => normalizeNativeToolRequest({ messages: [{ role: "tool", tool_call_id: "missing", content: "x" }], tools, toolChoice: "auto" }), /unknown tool_call_id/);
+});
+
+test("reliability layer retries timeout once after configured delay and reuses idempotent result", async () => {
+  clearReliabilityState();
+  let attempts = 0;
+  const started = Date.now();
+  const first = await runReliable({ timeoutMs: 20, retryDelayMs: 5, maxRetries: 1, idempotencyKey: "test-idempotency", operation: async () => { attempts += 1; if (attempts === 1) await new Promise((resolve) => setTimeout(resolve, 35)); return "ok"; } });
+  const elapsed = Date.now() - started;
+  const second = await runReliable({ idempotencyKey: "test-idempotency", operation: async () => { attempts += 1; return "wrong"; } });
+  assert.equal(first, "ok");
+  assert.equal(second, "ok");
+  assert.equal(attempts, 2);
+  assert.ok(elapsed >= 5);
+  assert.ok(getReliabilityStats().maxConcurrency >= 1);
+  clearReliabilityState();
+});
+
+test("reliability queue manages concurrent requests without dropping them", async () => {
+  clearReliabilityState();
+  const values = await Promise.all(Array.from({ length: 10 }, (_, index) => runReliable({ timeoutMs: 100, maxRetries: 0, operation: async () => index })));
+  assert.deepEqual(values.sort((a, b) => a - b), Array.from({ length: 10 }, (_, index) => index));
+  assert.equal(getReliabilityStats().failed, 0);
+  clearReliabilityState();
 });
