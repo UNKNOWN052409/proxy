@@ -46,13 +46,23 @@ function initDatabase() {
       revoked_at TEXT,
       owner_user_id INTEGER,
       provider_ids TEXT NOT NULL DEFAULT '[]',
-      model_ids TEXT NOT NULL DEFAULT '[]'
+      model_ids TEXT NOT NULL DEFAULT '[]',
+      rpm_limit INTEGER NOT NULL DEFAULT 0,
+      token_limit INTEGER NOT NULL DEFAULT 0,
+      profile_slug TEXT,
+      active_from TEXT,
+      active_until TEXT
     )
   `);
     for (const statement of [
       "ALTER TABLE api_keys ADD COLUMN owner_user_id INTEGER",
       "ALTER TABLE api_keys ADD COLUMN provider_ids TEXT NOT NULL DEFAULT '[]'",
       "ALTER TABLE api_keys ADD COLUMN model_ids TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE api_keys ADD COLUMN rpm_limit INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE api_keys ADD COLUMN token_limit INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE api_keys ADD COLUMN profile_slug TEXT",
+      "ALTER TABLE api_keys ADD COLUMN active_from TEXT",
+      "ALTER TABLE api_keys ADD COLUMN active_until TEXT",
     ]) { try { db.exec(statement); } catch { /* existing column */ } }
 
   // Create indexes for performance
@@ -89,7 +99,7 @@ function getDatabase() {
  * @returns {Object} Created key metadata (without plain key)
  */
 export function createKey(keyData) {
-  const { key, name, created_at, expires_at, owner_user_id = null, provider_ids = [], model_ids = [] } = keyData;
+  const { key, name, created_at, expires_at, owner_user_id = null, provider_ids = [], model_ids = [], rpm_limit = 0, token_limit = 0, profile_slug = null, active_from = null, active_until = null } = keyData;
 
   if (!isValidKeyFormat(key)) {
     throw new Error('Invalid API key format');
@@ -100,11 +110,14 @@ export function createKey(keyData) {
 
   try {
     const stmt = db.prepare(`
-      INSERT INTO api_keys (name, key_hash, created_at, expires_at, owner_user_id, provider_ids, model_ids)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO api_keys (name, key_hash, created_at, expires_at, owner_user_id, provider_ids, model_ids, rpm_limit, token_limit, profile_slug, active_from, active_until)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    const result = stmt.run(name, keyHash, created_at, expires_at, owner_user_id, JSON.stringify(provider_ids), JSON.stringify(model_ids));
+    const normalizedProfile = profile_slug || `profile-${crypto.randomBytes(6).toString('hex')}`;
+    const normalizedRpm = Math.max(0, Math.floor(Number(rpm_limit) || 0));
+    const normalizedTokens = Math.max(0, Math.floor(Number(token_limit) || 0));
+    const result = stmt.run(name, keyHash, created_at, expires_at, owner_user_id, JSON.stringify(provider_ids), JSON.stringify(model_ids), normalizedRpm, normalizedTokens, normalizedProfile, active_from, active_until);
 
     return {
       id: result.lastInsertRowid,
@@ -116,6 +129,11 @@ export function createKey(keyData) {
       owner_user_id,
       provider_ids,
       model_ids,
+      rpm_limit: normalizedRpm,
+      token_limit: normalizedTokens,
+      profile_slug: normalizedProfile,
+      active_from,
+      active_until,
     };
   } catch (error) {
     if (error.message.includes('UNIQUE constraint failed')) {
@@ -140,7 +158,7 @@ export function validateKey(key) {
   const db = getDatabase();
 
   const stmt = db.prepare(`
-    SELECT id, name, key_hash, created_at, expires_at, last_used_at, revoked_at, owner_user_id, provider_ids, model_ids
+    SELECT id, name, key_hash, created_at, expires_at, last_used_at, revoked_at, owner_user_id, provider_ids, model_ids, rpm_limit, token_limit, profile_slug, active_from, active_until
     FROM api_keys
     WHERE revoked_at IS NULL
   `);
@@ -179,6 +197,8 @@ export function validateKey(key) {
   if (now > expiresAt) {
     return null; // Expired key
   }
+  if (matchedKey.active_from && now < new Date(matchedKey.active_from)) return null;
+  if (matchedKey.active_until && now > new Date(matchedKey.active_until)) return null;
 
   // Update last_used_at
   updateLastUsed(matchedKey.id);
@@ -192,6 +212,11 @@ export function validateKey(key) {
     owner_user_id: matchedKey.owner_user_id ?? null,
     provider_ids: JSON.parse(matchedKey.provider_ids || '[]'),
     model_ids: JSON.parse(matchedKey.model_ids || '[]'),
+    rpm_limit: Number(matchedKey.rpm_limit || 0),
+    token_limit: Number(matchedKey.token_limit || 0),
+    profile_slug: matchedKey.profile_slug || `profile-${matchedKey.id}`,
+    active_from: matchedKey.active_from || null,
+    active_until: matchedKey.active_until || null,
   };
 }
 
@@ -241,7 +266,7 @@ export function listKeys({ includeRevoked = false, includeExpired = false } = {}
   const db = getDatabase();
 
   let query = `
-    SELECT id, name, created_at, expires_at, last_used_at, revoked_at, owner_user_id, provider_ids, model_ids
+    SELECT id, name, created_at, expires_at, last_used_at, revoked_at, owner_user_id, provider_ids, model_ids, rpm_limit, token_limit, profile_slug, active_from, active_until
     FROM api_keys
   `;
 
@@ -280,14 +305,14 @@ export function listKeys({ includeRevoked = false, includeExpired = false } = {}
 export function getKey(keyId) {
   const db = getDatabase();
   const stmt = db.prepare(`
-    SELECT id, name, created_at, expires_at, last_used_at, revoked_at, owner_user_id, provider_ids, model_ids
+    SELECT id, name, created_at, expires_at, last_used_at, revoked_at, owner_user_id, provider_ids, model_ids, rpm_limit, token_limit, profile_slug, active_from, active_until
     FROM api_keys
     WHERE id = ?
   `);
 
   const row = stmt.get(keyId) || null;
   if (!row) return null;
-  return { ...row, owner_user_id: row.owner_user_id ?? null, provider_ids: JSON.parse(row.provider_ids || '[]'), model_ids: JSON.parse(row.model_ids || '[]') };
+  return { ...row, owner_user_id: row.owner_user_id ?? null, provider_ids: JSON.parse(row.provider_ids || '[]'), model_ids: JSON.parse(row.model_ids || '[]'), rpm_limit: Number(row.rpm_limit || 0), token_limit: Number(row.token_limit || 0), profile_slug: row.profile_slug || `profile-${row.id}`, active_from: row.active_from || null, active_until: row.active_until || null };
 }
 
 /**

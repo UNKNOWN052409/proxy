@@ -42,9 +42,15 @@ export async function POST(request) {
     const actor = await currentUser();
     requireRole(actor, ["admin", "user"]);
     const body = await request.json();
-    const { name, expiresInDays = 365, providerIds = [], modelIds = [] } = body;
+    const { name, expiresInDays = 365, providerIds = [], modelIds = [], rpmLimit = 0, tokenLimit = 0, profileSlug = null } = body;
     if (!Array.isArray(providerIds) || !Array.isArray(modelIds) || providerIds.length > 100 || modelIds.length > 200) {
       return NextResponse.json({ success: false, error: "Invalid scope lists" }, { status: 400 });
+    }
+    if (!Number.isInteger(rpmLimit) || rpmLimit < 0 || rpmLimit > 100000 || !Number.isInteger(tokenLimit) || tokenLimit < 0 || tokenLimit > 100000000) {
+      return NextResponse.json({ success: false, error: "rpmLimit/tokenLimit are outside allowed bounds" }, { status: 400 });
+    }
+    if (profileSlug !== null && (typeof profileSlug !== "string" || !/^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/.test(profileSlug))) {
+      return NextResponse.json({ success: false, error: "Invalid profileSlug" }, { status: 400 });
     }
 
     // Validate name
@@ -76,6 +82,9 @@ export async function POST(request) {
     const allowed = actor.role === "admin" ? { provider_ids: providerIds, model_ids: modelIds } : getScope(actor.id);
     keyData.provider_ids = actor.role === "admin" ? providerIds : providerIds.filter((id) => allowed.provider_ids.includes(id));
     keyData.model_ids = actor.role === "admin" ? modelIds : modelIds.filter((id) => allowed.model_ids.includes(id));
+    keyData.rpm_limit = rpmLimit;
+    keyData.token_limit = tokenLimit;
+    keyData.profile_slug = profileSlug || null;
     if (actor.role === "user" && (keyData.provider_ids.length !== providerIds.length || keyData.model_ids.length !== modelIds.length)) {
       return NextResponse.json({ success: false, error: "Requested scope exceeds your assigned permissions" }, { status: 403 });
     }

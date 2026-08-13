@@ -69,6 +69,25 @@ export class SqlStore {
       );
       CREATE INDEX IF NOT EXISTS idx_oauth_accounts_provider ON oauth_accounts(provider);
       CREATE INDEX IF NOT EXISTS idx_oauth_accounts_active ON oauth_accounts(active);
+      CREATE TABLE IF NOT EXISTS usage_events (
+        id TEXT PRIMARY KEY,
+        api_key_id INTEGER,
+        owner_user_id INTEGER,
+        model TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        tokens INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0,
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        success INTEGER NOT NULL DEFAULT 1,
+        error TEXT,
+        timestamp TEXT NOT NULL,
+        date TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_usage_timestamp ON usage_events(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_usage_key ON usage_events(api_key_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_usage_owner ON usage_events(owner_user_id, timestamp);
       CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('schema_version', '1');
     `);

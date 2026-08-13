@@ -75,7 +75,7 @@ function usageTokens(completion) {
   return Number(usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0) || 0);
 }
 
-function recordUsage({ provider, model, completion, startedAt, success, error = null }) {
+function recordUsage({ provider, model, completion, startedAt, success, error = null, usageContext = null }) {
   const usage = completion?.usage || {};
   const inputTokens = Number(usage.prompt_tokens || usage.input_tokens || 0);
   const outputTokens = Number(usage.completion_tokens || usage.output_tokens || 0);
@@ -83,6 +83,8 @@ function recordUsage({ provider, model, completion, startedAt, success, error = 
     ? (inputTokens / 1000000) * Number(provider.costInputPerMillion || 0) + (outputTokens / 1000000) * Number(provider.costOutputPerMillion || 0)
     : 0;
   usageStore.record({
+    apiKeyId: usageContext?.apiKeyId ?? null,
+    ownerUserId: usageContext?.ownerUserId ?? null,
     provider: provider.id,
     model: `${provider.id}/${model}`,
     tokens: usageTokens(completion),
@@ -134,14 +136,14 @@ async function executeSelection(selection, body, startedAt) {
     const completion = parseClientManagedToolResponse({ text: answer, tools: body.tools, model: `${provider.id}/${model}` });
     completion.usage = direct.completion?.usage || completion.usage;
     selection.markCredentialResult?.(true, 200);
-    recordUsage({ provider, model, completion, startedAt, success: true });
+    recordUsage({ provider, model, completion, startedAt, success: true, usageContext: body.__usageContext });
     return { completion, provider, model, mode: "client_managed_tools" };
   }
 
   const result = await executorFor(provider)({ provider, apiKey, body: { ...body, tool_choice: toolContract.tool_choice, parallel_tool_calls: toolContract.parallel_tool_calls }, model, messages, tools: toolContract.tools });
   const completion = provider.supportsTools && toolContract.tools.length ? normalizeNativeToolCompletion({ completion: result.completion, tools: toolContract.tools, model: `${provider.id}/${model}`, parallelToolCalls: toolContract.parallel_tool_calls }) : result.completion;
   selection.markCredentialResult?.(true, 200);
-  recordUsage({ provider, model, completion, startedAt, success: true });
+  recordUsage({ provider, model, completion, startedAt, success: true, usageContext: body.__usageContext });
   return { completion, provider, model, mode: provider.supportsTools ? "native_tools" : "chat" };
 }
 
@@ -159,7 +161,7 @@ export async function executeGatewayChat(body) {
         return await runReliable({ operation: () => executeSelection(candidate, body, startedAt), idempotencyKey, priority: body.priority || "normal", requestId: body.request_id || idempotencyKey || `${candidate.provider.id}:${candidate.model}:${startedAt}`, onRetry: ({ attempt }) => { console.warn(JSON.stringify({ event: "gateway_route_retry", provider: candidate.provider.id, model: candidate.model, attempt })); } });
       } catch (error) {
         candidate.markCredentialResult?.(false, error?.status || error?.statusCode || null);
-        recordUsage({ provider: candidate.provider, model: candidate.model, completion: null, startedAt, success: false, error: error.message });
+        recordUsage({ provider: candidate.provider, model: candidate.model, completion: null, startedAt, success: false, error: error.message, usageContext: body.__usageContext });
         lastError = error;
         if (index === candidates.length - 1 || !shouldUseProviderFallback(error)) throw error;
       }
@@ -187,11 +189,11 @@ export async function executeGatewayImage(body) {
       requestId: body.request_id || `${provider.id}:${model}:${startedAt}`,
     });
     selection.markCredentialResult?.(true, 200);
-    usageStore.record({ provider: provider.id, model: `${provider.id}/${model}`, tokens: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, duration: Date.now() - startedAt, success: true, error: null });
+    usageStore.record({ apiKeyId: body.__usageContext?.apiKeyId ?? null, ownerUserId: body.__usageContext?.ownerUserId ?? null, provider: provider.id, model: `${provider.id}/${model}`, tokens: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, duration: Date.now() - startedAt, success: true, error: null });
     return result;
   } catch (error) {
     selection.markCredentialResult?.(false, error?.status || error?.statusCode || null);
-    usageStore.record({ provider: provider.id, model: `${provider.id}/${model}`, tokens: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, duration: Date.now() - startedAt, success: false, error: error.message });
+    usageStore.record({ apiKeyId: body.__usageContext?.apiKeyId ?? null, ownerUserId: body.__usageContext?.ownerUserId ?? null, provider: provider.id, model: `${provider.id}/${model}`, tokens: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, duration: Date.now() - startedAt, success: false, error: error.message });
     throw error;
   }
 }

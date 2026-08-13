@@ -8,7 +8,7 @@ export default function ApiKeysPage() {
   const [loading, setLoading] = useState(true);
   const [showRevoked, setShowRevoked] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createForm, setCreateForm] = useState({ name: "", expiresInDays: 365 });
+  const [createForm, setCreateForm] = useState({ name: "", expiresInDays: 365, profileSlug: "", providerIds: "", modelIds: "", rpmLimit: 0, tokenLimit: 0 });
   const [creating, setCreating] = useState(false);
   const [newKey, setNewKey] = useState(null);
   const [copied, setCopied] = useState(null);
@@ -49,14 +49,14 @@ export default function ApiKeysPage() {
       const response = await fetch("/api/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(createForm),
+        body: JSON.stringify({ ...createForm, profileSlug: createForm.profileSlug || null, providerIds: createForm.providerIds.split(",").map((value) => value.trim()).filter(Boolean), modelIds: createForm.modelIds.split(",").map((value) => value.trim()).filter(Boolean), rpmLimit: Number(createForm.rpmLimit) || 0, tokenLimit: Number(createForm.tokenLimit) || 0 }),
       });
 
       const data = await response.json();
 
       if (data.success) {
         setNewKey(data.key);
-        setCreateForm({ name: "", expiresInDays: 365 });
+        setCreateForm({ name: "", expiresInDays: 365, profileSlug: "", providerIds: "", modelIds: "", rpmLimit: 0, tokenLimit: 0 });
         await loadKeys();
       } else {
         alert(data.error || "Failed to create key");
@@ -230,6 +230,10 @@ export default function ApiKeysPage() {
                           <span>Last used {formatDate(key.last_used_at)}</span>
                         </>
                       )}
+                      <span>•</span>
+                      <span>RPM {key.rpm_limit || "unlimited"}</span>
+                      <span>•</span>
+                      <span>Tokens {key.token_limit || "unlimited"}</span>
                     </div>
                   </div>
                   {!revoked && (
@@ -272,6 +276,33 @@ export default function ApiKeysPage() {
                 disabled={creating}
                 required
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-text-main mb-2">Profile Slug (optional)</label>
+              <input type="text" value={createForm.profileSlug} onChange={(e) => setCreateForm({ ...createForm, profileSlug: e.target.value })} placeholder="e.g., client-acme" pattern="[a-z0-9-]+" className="w-full px-3 py-2 rounded-lg bg-surface border border-border text-text-main" disabled={creating} />
+              <p className="text-xs text-text-muted mt-1">Used for tenant-scoped routing and reporting.</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-text-main mb-2">Provider IDs (comma-separated)</label>
+              <input type="text" value={createForm.providerIds} onChange={(e) => setCreateForm({ ...createForm, providerIds: e.target.value })} placeholder="openai, gemini" className="w-full px-3 py-2 rounded-lg bg-surface border border-border text-text-main" disabled={creating} />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-text-main mb-2">Model IDs (comma-separated)</label>
+              <input type="text" value={createForm.modelIds} onChange={(e) => setCreateForm({ ...createForm, modelIds: e.target.value })} placeholder="gpt-4o-mini, gemini-3.1-flash-image" className="w-full px-3 py-2 rounded-lg bg-surface border border-border text-text-main" disabled={creating} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-text-main mb-2">RPM limit</label>
+                <input type="number" min="0" max="100000" value={createForm.rpmLimit} onChange={(e) => setCreateForm({ ...createForm, rpmLimit: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-surface border border-border text-text-main" disabled={creating} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-text-main mb-2">Token limit / day</label>
+                <input type="number" min="0" max="100000000" value={createForm.tokenLimit} onChange={(e) => setCreateForm({ ...createForm, tokenLimit: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-surface border border-border text-text-main" disabled={creating} />
+              </div>
             </div>
 
             <div>
