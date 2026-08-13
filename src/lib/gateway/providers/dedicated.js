@@ -529,6 +529,7 @@ export const DEDICATED_PROVIDER_PROFILES = {
     authModes: ["bearer-token", "api-key"],
     authMode: "bearer-token",
     apiKeyHeader: "authorization",
+    availabilityNote: "Kiro browser sign-in is not a gateway OAuth flow. Configure only a paid-plan, provider-authorized compatible endpoint and issued bearer token or API key; cookies, passwords, browser sessions, and intercepted traffic are not accepted.",
   },
   opencode: {
     adapter: "openai",

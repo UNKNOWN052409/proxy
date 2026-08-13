@@ -196,7 +196,7 @@ function environmentProviders() {
       apiKeyEnv: kiroTokenEnv,
       models: splitModels(process.env.GATEWAY_KIRO_MODELS),
       defaultModel: process.env.GATEWAY_KIRO_DEFAULT_MODEL,
-      authMode: "bearer-token",
+      authMode: process.env.KIRO_AUTH_TOKEN ? "bearer-token" : "api-key",
       requiresBaseUrl: true,
     });
   }

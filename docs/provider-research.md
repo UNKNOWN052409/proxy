@@ -109,3 +109,18 @@ Official OpenAI API platform documentation describes API-key based API access an
 Official Anthropic API authentication documentation specifies the `x-api-key` direct API header. Claude Code login is a separate product authentication flow and is not documented as a third-party OAuth program for arbitrary inference proxies. Sources: https://platform.claude.com/docs/en/manage-claude/authentication and https://code.claude.com/docs/en/authentication
 
 GitLab REST API can use OAuth access tokens for general GitLab API access, but the documented GitLab Duo Chat completions endpoint is marked internal use only and should not be exposed as a generic OpenAI-compatible inference OAuth route. Sources: https://docs.gitlab.com/api/rest/ and https://docs.gitlab.com/api/chat/
+
+## Kiro official authentication audit (2026-08-14)
+
+- Official Kiro authentication docs distinguish browser-based interactive sign-in from API key authentication for non-interactive/headless CLI use.
+- Kiro browser sign-in can use identity providers such as GitHub, Google, AWS Builder ID, and AWS IAM Identity Center. That interactive identity is not treated as a generic gateway bearer credential without an explicit documented API token grant.
+- Kiro CLI headless documentation states that API key authentication is the appropriate automated/non-interactive path and is available to eligible paid Kiro plans.
+- Gateway-safe Kiro support remains official API key/auth token or an explicitly authorized endpoint, with encrypted import, model discovery where supported, health verification, and status reporting. No browser callback capture, cookies, browser storage, or session extraction is eligible for the gateway.
+
+Sources: https://kiro.dev/docs/getting-started/authentication/ ; https://kiro.dev/docs/cli/headless/ ; https://kiro.dev/
+
+### Implementation status (2026-08-14)
+
+The gateway’s Kiro provider profile now exposes the paid-plan, authorized-endpoint requirement directly in dashboard status, retains the note after a provider is configured, and explicitly excludes browser OAuth, cookies, passwords, browser sessions, and intercepted traffic. The encrypted credential import UI documents both `apiKey` and `token` formats. Regression coverage verifies bearer-token configuration, API-key fallback status, secret redaction, Kiro’s no-OAuth directory metadata, and the provider’s authorized-endpoint guidance.
+
+Sources: https://kiro.dev/docs/getting-started/authentication/ ; https://kiro.dev/docs/cli/headless/ ; https://kiro.dev/
