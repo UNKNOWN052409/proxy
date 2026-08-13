@@ -172,6 +172,9 @@ export const DEDICATED_PROVIDER_PROFILES = {
     supportsVision: false,
     officialApi: "custom-endpoint-only",
     requiresBaseUrl: true,
+    authModes: ["bearer-token", "api-key"],
+    authMode: "bearer-token",
+    apiKeyHeader: "authorization",
   },
   opencode: {
     adapter: "openai",

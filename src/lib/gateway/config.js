@@ -158,6 +158,20 @@ function environmentProviders() {
       authMode: process.env.GATEWAY_GEMINI_AUTH_MODE || "api-key",
     });
   }
+  const kiroTokenEnv = process.env.KIRO_AUTH_TOKEN ? "KIRO_AUTH_TOKEN" : (process.env.KIRO_API_KEY ? "KIRO_API_KEY" : null);
+  if (kiroTokenEnv) {
+    const profile = getDedicatedProviderProfile("kiro");
+    providers.push({
+      ...profile,
+      id: "kiro",
+      baseUrl: process.env.GATEWAY_KIRO_BASE_URL || process.env.KIRO_BASE_URL || null,
+      apiKeyEnv: kiroTokenEnv,
+      models: splitModels(process.env.GATEWAY_KIRO_MODELS),
+      defaultModel: process.env.GATEWAY_KIRO_DEFAULT_MODEL,
+      authMode: "bearer-token",
+      requiresBaseUrl: true,
+    });
+  }
   if (process.env.GATEWAY_ANTHROPIC_API_KEY) {
     providers.push({
       id: "anthropic", label: "Anthropic", type: "anthropic",
