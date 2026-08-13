@@ -1,7 +1,7 @@
 import { validateKey } from "@/lib/api-keys/store";
 import { executeGatewayChat } from "@/lib/gateway/service";
 import { createSingleSseResponse, corsHeaders, getBearerToken, gatewayError, openAiErrorResponse, validateChatRequest } from "@/lib/gateway/openai";
-import { canUse } from "@/lib/platform/store";
+import { canUse, getScope } from "@/lib/platform/store";
 import { assertKeyPolicy } from "@/lib/api-keys/policy";
 
 export const runtime = "nodejs";
@@ -27,10 +27,12 @@ export async function POST(request) {
     body.priority = body.priority || request.headers.get("x-gateway-priority") || "normal";
     validateChatRequest(body);
     const providerId = body.provider || body.provider_id || null;
-    assertKeyPolicy(keyRecord, { provider: providerId, model: body.model });
+    const userScope = keyRecord.owner_user_id ? getScope(keyRecord.owner_user_id) : null;
+    assertKeyPolicy(keyRecord, { provider: providerId, model: body.model, profile: userScope });
     if (!canUse({ provider_ids: keyRecord.provider_ids || [], model_ids: keyRecord.model_ids || [] }, { providerId, modelId: body.model })) {
       throw gatewayError("This API key is not allowed to use the requested provider or model", 403, "permission_error", "scope_denied");
     }
+    if (userScope && !canUse(userScope, { providerId, modelId: body.model })) throw gatewayError("This user profile is outside its allowed provider, model, or activation window", 403, "permission_error", "profile_scope_denied");
 
     Object.defineProperty(body, "__usageContext", { value: { apiKeyId: keyRecord.id, ownerUserId: keyRecord.owner_user_id || null }, enumerable: false });
     const { completion } = await executeGatewayChat(body);

@@ -2,7 +2,7 @@ import { getGatewayNotifications, getGatewayRuntimeState, getProviderModels, get
 import { getCredentialPoolStatus, markCredentialResult, selectCredential } from "./credentials.js";
 import { getDedicatedProviderProfile, listDedicatedProviderProfiles } from "./providers/dedicated.js";
 
-const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "GEMINI_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "MIMO_", "XIAOMI_", "GITLAB_", "LOVABLE_", "KIRO_"];
+const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "GEMINI_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "MIMO_", "XIAOMI_", "GITLAB_", "LOVABLE_", "KIRO_", "DEEPSEEK_", "GROQ_", "PERPLEXITY_", "MISTRAL_", "COHERE_", "HUGGINGFACE_", "VERTEX_", "AZURE_"];
 const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic", "gemini", "gitlab", "bedrock", "custom"]);
 
 function splitModels(value) {
@@ -208,6 +208,12 @@ function environmentProviders() {
     ["mimo", process.env.GATEWAY_MIMO_API_KEY_ENV || "MIMO_API_KEY", "GATEWAY_MIMO_BASE_URL", "GATEWAY_MIMO_MODELS", mimoDefaultBaseUrl],
     ["kimi", "MOONSHOT_API_KEY", "GATEWAY_KIMI_BASE_URL", "GATEWAY_KIMI_MODELS", null],
     ["grok", "XAI_API_KEY", "GATEWAY_GROK_BASE_URL", "GATEWAY_GROK_MODELS", null],
+    ["deepseek", "DEEPSEEK_API_KEY", "GATEWAY_DEEPSEEK_BASE_URL", "GATEWAY_DEEPSEEK_MODELS", null],
+    ["groq", "GROQ_API_KEY", "GATEWAY_GROQ_BASE_URL", "GATEWAY_GROQ_MODELS", null],
+    ["perplexity", "PERPLEXITY_API_KEY", "GATEWAY_PERPLEXITY_BASE_URL", "GATEWAY_PERPLEXITY_MODELS", null],
+    ["mistral", "MISTRAL_API_KEY", "GATEWAY_MISTRAL_BASE_URL", "GATEWAY_MISTRAL_MODELS", null],
+    ["cohere", "COHERE_API_KEY", "GATEWAY_COHERE_BASE_URL", "GATEWAY_COHERE_MODELS", null],
+    ["huggingface", "HUGGINGFACE_API_KEY", "GATEWAY_HUGGINGFACE_BASE_URL", "GATEWAY_HUGGINGFACE_MODELS", null],
   ];
   if (qwenApiKeyEnv !== "DASHSCOPE_API_KEY" && !qwenApiKeyEnv.startsWith("GATEWAY_")) {
     throw new Error("GATEWAY_QWEN_API_KEY_ENV must reference a dedicated gateway secret variable");
@@ -294,10 +300,21 @@ export function getGatewayStatus() {
     })),
     notifications: getGatewayNotifications(),
     lastRefreshAt: runtime.lastRefreshAt,
-    supportedProviders: listDedicatedProviderProfiles().map(({ apiKeyEnv, ...profile }) => ({
-      ...profile,
-      configured: Boolean(apiKeyEnv && process.env[apiKeyEnv]),
-    })),
+    supportedProviders: listDedicatedProviderProfiles().map(({ apiKeyEnv, ...profile }) => {
+      const configured = profile.localOnly
+        ? true
+        : Boolean(apiKeyEnv && process.env[apiKeyEnv]);
+      const status = configured ? "available" : "unavailable";
+      return {
+        ...profile,
+        configured,
+        status,
+        availabilityReason: configured
+          ? (profile.localOnly ? "Local endpoint can be tested on this host" : "Credential or runtime configuration detected")
+          : (profile.oauthOnly ? "OAuth application configuration is required" : profile.requiresBaseUrl ? "Explicit base URL and credential are required" : `${apiKeyEnv || "Provider credential"} is not configured`),
+        setupRequired: !configured,
+      };
+    }),
     features: {
       clientManagedTools: true,
       visionFallback: providers.some((provider) => Boolean(provider.visionProvider)),

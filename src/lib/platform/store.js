@@ -27,6 +27,11 @@ function database() {
       user_id INTEGER NOT NULL,
       provider_ids TEXT NOT NULL DEFAULT '[]',
       model_ids TEXT NOT NULL DEFAULT '[]',
+      rpm_limit INTEGER NOT NULL DEFAULT 0,
+      token_limit INTEGER NOT NULL DEFAULT 0,
+      active_from TEXT,
+      active_until TEXT,
+      profile_slug TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE(user_id),
@@ -43,6 +48,13 @@ function database() {
       FOREIGN KEY(user_id) REFERENCES platform_users(id) ON DELETE SET NULL
     );
   `);
+  for (const statement of [
+    "ALTER TABLE platform_scopes ADD COLUMN rpm_limit INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE platform_scopes ADD COLUMN token_limit INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE platform_scopes ADD COLUMN active_from TEXT",
+    "ALTER TABLE platform_scopes ADD COLUMN active_until TEXT",
+    "ALTER TABLE platform_scopes ADD COLUMN profile_slug TEXT",
+  ]) { try { db.exec(statement); } catch { /* existing column */ } }
   return db;
 }
 
@@ -97,25 +109,31 @@ export function setUserActive(id, active) {
   return getUser(id);
 }
 
-export function setScope(userId, { providerIds = [], modelIds = [] }) {
+export function setScope(userId, { providerIds = [], modelIds = [], rpmLimit = 0, tokenLimit = 0, activeFrom = null, activeUntil = null, profileSlug = null }) {
   const d = database();
   const now = new Date().toISOString();
   const providers = JSON.stringify([...new Set(providerIds.filter((v) => typeof v === "string" && v.length <= 200))]);
   const models = JSON.stringify([...new Set(modelIds.filter((v) => typeof v === "string" && v.length <= 200))]);
-  d.prepare(`INSERT INTO platform_scopes(user_id,provider_ids,model_ids,created_at,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET provider_ids=excluded.provider_ids, model_ids=excluded.model_ids, updated_at=excluded.updated_at`).run(userId, providers, models, now, now);
+  const rpm = Math.max(0, Math.floor(Number(rpmLimit) || 0));
+  const tokens = Math.max(0, Math.floor(Number(tokenLimit) || 0));
+  const slug = String(profileSlug || `user-${userId}`).trim().replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 80) || `user-${userId}`;
+  d.prepare(`INSERT INTO platform_scopes(user_id,provider_ids,model_ids,rpm_limit,token_limit,active_from,active_until,profile_slug,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET provider_ids=excluded.provider_ids, model_ids=excluded.model_ids, rpm_limit=excluded.rpm_limit, token_limit=excluded.token_limit, active_from=excluded.active_from, active_until=excluded.active_until, profile_slug=excluded.profile_slug, updated_at=excluded.updated_at`).run(userId, providers, models, rpm, tokens, activeFrom || null, activeUntil || null, slug, now, now);
   return getScope(userId);
 }
 
 export function getScope(userId) {
   const row = database().prepare("SELECT * FROM platform_scopes WHERE user_id=?").get(userId);
-  if (!row) return { user_id: userId, provider_ids: [], model_ids: [] };
-  return { user_id: row.user_id, provider_ids: JSON.parse(row.provider_ids), model_ids: JSON.parse(row.model_ids), updated_at: row.updated_at };
+  if (!row) return { user_id: userId, provider_ids: [], model_ids: [], rpm_limit: 0, token_limit: 0, active_from: null, active_until: null, profile_slug: `user-${userId}` };
+  return { user_id: row.user_id, provider_ids: JSON.parse(row.provider_ids), model_ids: JSON.parse(row.model_ids), rpm_limit: Number(row.rpm_limit || 0), token_limit: Number(row.token_limit || 0), active_from: row.active_from || null, active_until: row.active_until || null, profile_slug: row.profile_slug || `user-${userId}`, updated_at: row.updated_at };
 }
 
 export function canUse(scope, { providerId, modelId }) {
+  const now = Date.now();
+  const fromOk = !scope.active_from || now >= Date.parse(scope.active_from);
+  const untilOk = !scope.active_until || now <= Date.parse(scope.active_until);
   const providerOk = !scope.provider_ids.length || scope.provider_ids.includes(providerId);
   const modelOk = !scope.model_ids.length || scope.model_ids.includes(modelId);
-  return providerOk && modelOk;
+  return fromOk && untilOk && providerOk && modelOk;
 }
 
 export function connectDomain({ hostname, userId = null }) {
