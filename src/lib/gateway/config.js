@@ -2,8 +2,8 @@ import { getGatewayNotifications, getGatewayRuntimeState, getProviderModels, get
 import { getCredentialPoolStatus, markCredentialResult, selectCredential } from "./credentials.js";
 import { getDedicatedProviderProfile, listDedicatedProviderProfiles } from "./providers/dedicated.js";
 
-const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "MIMO_", "XIAOMI_", "GITLAB_", "LOVABLE_", "KIRO_"];
-const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic", "gitlab", "bedrock", "custom"]);
+const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "GEMINI_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "MIMO_", "XIAOMI_", "GITLAB_", "LOVABLE_", "KIRO_"];
+const SUPPORTED_PROVIDER_TYPES = new Set(["openai", "anthropic", "gemini", "gitlab", "bedrock", "custom"]);
 
 function splitModels(value) {
   if (Array.isArray(value)) return value.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim());
@@ -99,6 +99,7 @@ function normalizeProvider(provider) {
     supportsTools: provider.supportsTools === true || profile?.supportsTools === true,
     supportsVision: provider.supportsVision === true || profile?.supportsVision === true,
     supportsImageGeneration: provider.supportsImageGeneration === true || profile?.supportsImageGeneration === true,
+    authMode: String(provider.authMode || profile?.authMode || "api-key").trim().toLowerCase(),
     visionProvider: provider.visionProvider ? String(provider.visionProvider).trim().toLowerCase() : null,
     headers: normalizeHeaders(provider.headers),
     apiKeyHeader: String(provider.apiKeyHeader || profile?.apiKeyHeader || "authorization").trim().toLowerCase(),
@@ -143,6 +144,18 @@ function environmentProviders() {
       supportsTools: process.env.GATEWAY_OPENAI_SUPPORTS_TOOLS !== "false",
       supportsVision: process.env.GATEWAY_OPENAI_SUPPORTS_VISION === "true",
       supportsImageGeneration: process.env.GATEWAY_OPENAI_SUPPORTS_IMAGE_GENERATION === "true",
+    });
+  }
+  if (process.env.GEMINI_API_KEY) {
+    const profile = getDedicatedProviderProfile("gemini");
+    providers.push({
+      ...profile,
+      id: "gemini",
+      baseUrl: process.env.GATEWAY_GEMINI_BASE_URL || profile.baseUrl,
+      apiKeyEnv: "GEMINI_API_KEY",
+      models: splitModels(process.env.GATEWAY_GEMINI_MODELS).length ? splitModels(process.env.GATEWAY_GEMINI_MODELS) : profile.models,
+      defaultModel: process.env.GATEWAY_GEMINI_DEFAULT_MODEL || profile.models[0],
+      authMode: process.env.GATEWAY_GEMINI_AUTH_MODE || "api-key",
     });
   }
   if (process.env.GATEWAY_ANTHROPIC_API_KEY) {
@@ -279,6 +292,8 @@ export function getGatewayStatus() {
       mergeOnlyConfigurationImport: true,
       providerHealthChecks: true,
       endpointAudit: true,
+      imageGeneration: providers.some((provider) => provider.supportsImageGeneration === true),
+      nativeGeminiImage: providers.some((provider) => provider.type === "gemini" && provider.supportsImageGeneration === true),
     },
   };
 }
@@ -336,7 +351,11 @@ export function listGatewayModels() {
       context_window: metadata[model]?.contextWindow || provider.contextWindow || null,
       pricing: { input_per_million: metadata[model]?.inputCostPerMillion ?? provider.costInputPerMillion, output_per_million: metadata[model]?.outputCostPerMillion ?? provider.costOutputPerMillion },
       routing: { priority: metadata[model]?.routingPriority ?? provider.routingPriority, fallback_providers: provider.fallbackProviders },
-      capabilities: { tools: metadata[model]?.supportsTools ?? provider.supportsTools, vision: metadata[model]?.supportsVision ?? (provider.supportsVision || Boolean(provider.visionProvider)) },
+      capabilities: {
+        tools: metadata[model]?.supportsTools ?? provider.supportsTools,
+        vision: metadata[model]?.supportsVision ?? (provider.supportsVision || Boolean(provider.visionProvider)),
+        image_generation: metadata[model]?.supportsImageGeneration ?? provider.supportsImageGeneration === true,
+      },
       metadata: metadata[model] || {},
     }));
   });

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { executeOpenAiImage } from "../src/lib/gateway/providers/openai.js";
+import { executeGeminiImage } from "../src/lib/gateway/providers/gemini.js";
 import {
   gatewayError,
   openAiErrorResponse,
@@ -68,6 +69,43 @@ test("image generation forwards bounded fields and normalizes the OpenAI respons
     assert.equal(requests[0].authorization, "Bearer test-key");
     assert.deepEqual(requests[0].body, { model: "gpt-image-1", prompt: "a red kite", size: "1024x1024", quality: "high" });
     await assert.rejects(() => executeOpenAiImage({ provider: { id: "openai", baseUrl: `http://127.0.0.1:${port}/v1` }, body: { prompt: "" }, model: "gpt-image-1" }), /Image prompt is required/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("native Gemini image adapter uses official interactions payload and auth modes", async () => {
+  const requests = [];
+  const server = http.createServer(async (request, response) => {
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    requests.push({ url: request.url, apiKey: request.headers["x-goog-api-key"], authorization: request.headers.authorization, body: JSON.parse(raw) });
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ output_image: { data: "aW1hZ2UtYnl0ZXM=" } }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  try {
+    const result = await executeGeminiImage({
+      provider: { id: "gemini", baseUrl: `http://127.0.0.1:${port}/v1beta`, authMode: "api-key", headers: {} },
+      apiKey: "gemini-key",
+      model: "gemini-3.1-flash-image",
+      body: { prompt: "a red kite", ignored: "drop" },
+    });
+    assert.deepEqual(result, { created: result.created, data: [{ b64_json: "aW1hZ2UtYnl0ZXM=" }] });
+    assert.equal(requests[0].url, "/v1beta/interactions");
+    assert.equal(requests[0].apiKey, "gemini-key");
+    assert.equal(requests[0].authorization, undefined);
+    assert.deepEqual(requests[0].body, { model: "gemini-3.1-flash-image", input: [{ type: "text", text: "a red kite" }] });
+
+    await executeGeminiImage({
+      provider: { id: "gemini", baseUrl: `http://127.0.0.1:${port}/v1beta`, authMode: "oauth", headers: {} },
+      apiKey: "oauth-token",
+      model: "gemini-3-pro-image",
+      body: { prompt: "a blue kite" },
+    });
+    assert.equal(requests[1].authorization, "Bearer oauth-token");
+    await assert.rejects(() => executeGeminiImage({ provider: { id: "gemini", baseUrl: `http://127.0.0.1:${port}/v1beta` }, model: "gemini-3.1-flash-image", body: { prompt: "" } }), /Image prompt is required/);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

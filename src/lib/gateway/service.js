@@ -4,6 +4,7 @@ import { buildToolInstruction, normalizeNativeToolCompletion, normalizeNativeToo
 import { getReliabilityStats, runReliable } from "./reliability.js";
 import { convertImagesToText } from "./vision.js";
 import { executeOpenAi, executePathModel, describeImageWithOpenAi, executeOpenAiImage } from "./providers/openai.js";
+import { executeGeminiImage } from "./providers/gemini.js";
 import { executeAnthropic, describeImageWithAnthropic } from "./providers/anthropic.js";
 import { executeGitLab } from "./providers/gitlab.js";
 import { executeBedrock } from "./providers/bedrock.js";
@@ -173,12 +174,14 @@ export async function executeGatewayImage(body) {
   const startedAt = Date.now();
   const selection = resolveProvider(body.model);
   const { provider, model, apiKey } = selection;
-  if (!(provider.type === "openai" || provider.type === "custom") || provider.supportsImageGeneration !== true) {
+  if (!(provider.type === "openai" || provider.type === "custom" || provider.type === "gemini") || provider.supportsImageGeneration !== true) {
     throw gatewayError(`Provider ${provider.id} is not configured for image generation`, 400, "unsupported_image_generation");
   }
   try {
     const result = await runReliable({
-      operation: () => executeOpenAiImage({ provider, apiKey, body, model }),
+      operation: () => provider.type === "gemini"
+        ? executeGeminiImage({ provider, apiKey, body, model })
+        : executeOpenAiImage({ provider, apiKey, body, model }),
       idempotencyKey: body.idempotency_key || body.idempotencyKey || null,
       priority: body.priority || "normal",
       requestId: body.request_id || `${provider.id}:${model}:${startedAt}`,
