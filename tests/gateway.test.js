@@ -16,6 +16,7 @@ import { auditProviderEndpoint, detectLeakage, classifyIdentity, __testables as 
 import { detectCustomEndpoint, normalizeCustomEndpointUrl } from "../src/lib/gateway/custom-endpoint.js";
 import { executePathModel } from "../src/lib/gateway/providers/openai.js";
 import { buildConnection, buildSetup, listProfiles } from "../src/lib/gateway/cli-profiles.js";
+import { listDedicatedProviderProfiles } from "../src/lib/gateway/providers/dedicated.js";
 
 const tools = [{
   type: "function",
@@ -84,6 +85,21 @@ test("gateway provider config permits HTTPS and loopback HTTP only", () => {
   assert.equal(config.normalizeBaseUrl("https://api.example.test/v1", "example"), "https://api.example.test/v1");
   assert.equal(config.normalizeBaseUrl("http://127.0.0.1:11434/v1", "local"), "http://127.0.0.1:11434/v1");
   assert.throws(() => config.normalizeBaseUrl("http://api.example.test/v1", "example"), /must use HTTPS/);
+});
+test("provider catalog includes official providers and safe OmniRoute-style free candidates", () => {
+  const profiles = listDedicatedProviderProfiles();
+  for (const id of ["deepseek", "groq", "perplexity", "mistral", "cohere", "huggingface", "vertex-ai", "azure-openai", "ollama", "lmstudio", "opencode-free", "felo", "pollinations", "qoder", "kilo"]) {
+    assert.ok(profiles.some((profile) => profile.id === id), `missing provider profile: ${id}`);
+  }
+  for (const id of ["opencode-free", "felo", "pollinations", "qoder", "kilo"]) {
+    const profile = profiles.find((item) => item.id === id);
+    assert.equal(profile.catalogOnly, true);
+    assert.equal(profile.allowNoAuth, undefined);
+    assert.equal(profile.requiresBaseUrl, true);
+  }
+  const local = profiles.find((profile) => profile.id === "ollama");
+  assert.equal(local.localOnly, true);
+  assert.equal(local.allowNoAuth, true);
 });
 
 test("gateway configuration tracks a valid expiry timestamp", () => {

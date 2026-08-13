@@ -311,7 +311,9 @@ export function getGatewayStatus() {
         status,
         availabilityReason: configured
           ? (profile.localOnly ? "Local endpoint can be tested on this host" : "Credential or runtime configuration detected")
-          : (profile.oauthOnly ? "OAuth application configuration is required" : profile.requiresBaseUrl ? "Explicit base URL and credential are required" : `${apiKeyEnv || "Provider credential"} is not configured`),
+          : (profile.availabilityNote || (profile.oauthOnly ? "OAuth application configuration is required" : profile.requiresBaseUrl ? "Explicit base URL and credential are required" : `${apiKeyEnv || "Provider credential"} is not configured`)),
+        catalogOnly: profile.catalogOnly === true,
+        freeTierCatalog: profile.freeTierCatalog === true,
         setupRequired: !configured,
       };
     }),
