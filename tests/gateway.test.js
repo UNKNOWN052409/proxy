@@ -15,6 +15,7 @@ import { __testables as credentials } from "../src/lib/gateway/credentials.js";
 import { auditProviderEndpoint, detectLeakage, classifyIdentity, __testables as audit } from "../src/lib/gateway/audit.js";
 import { detectCustomEndpoint, normalizeCustomEndpointUrl } from "../src/lib/gateway/custom-endpoint.js";
 import { executePathModel } from "../src/lib/gateway/providers/openai.js";
+import { buildConnection, listProfiles } from "../src/lib/gateway/cli-profiles.js";
 
 const tools = [{
   type: "function",
@@ -70,6 +71,13 @@ test("path-style executor posts to the exact endpoint and normalizes OpenAI-shap
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("provider profiles generate redacted local connection settings and restrict OpenCode to loopback", () => {
+  assert.ok(listProfiles().some((profile) => profile.id === "claude"));
+  const connection = buildConnection({ profileId: "opencode", baseUrl: "http://127.0.0.1:4096/v1", model: "local/model" });
+  assert.equal(connection.authHeader, "Authorization: Bearer $GATEWAY_API_KEY");
+  assert.throws(() => buildConnection({ profileId: "opencode", baseUrl: "https://public.example.test/v1" }), /restricted to local/);
 });
 
 test("gateway provider config permits HTTPS and loopback HTTP only", () => {

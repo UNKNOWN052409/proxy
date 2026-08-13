@@ -17,6 +17,11 @@ export default function SettingsPage() {
   const [tunnelMode, setTunnelMode] = useState("quick");
   const [tunnelName, setTunnelName] = useState("");
   const [tunnelHostname, setTunnelHostname] = useState("");
+  const [profiles, setProfiles] = useState([]);
+  const [connectProfile, setConnectProfile] = useState("custom");
+  const [connectBaseUrl, setConnectBaseUrl] = useState("");
+  const [connectModel, setConnectModel] = useState("");
+  const [connectOutput, setConnectOutput] = useState(null);
 
   useEffect(() => {
     fetch("/api/config/tunnel")
@@ -27,6 +32,10 @@ export default function SettingsPage() {
     fetch("/api/config/auth/check")
       .then(r => r.json())
       .then(data => setHasPassword(data.hasPassword))
+      .catch(() => {});
+    fetch("/api/config/connect")
+      .then(r => r.json())
+      .then(data => { setProfiles(data.profiles || []); setConnectBaseUrl(data.gateway?.baseUrl || ""); })
       .catch(() => {});
   }, []);
 
@@ -51,6 +60,14 @@ export default function SettingsPage() {
     } finally {
       setTunnelLoading(false);
     }
+  };
+
+  const handleGenerateConnection = async () => {
+    try {
+      const res = await fetch("/api/config/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile: connectProfile, baseUrl: connectBaseUrl, model: connectModel || null }) });
+      const data = await res.json();
+      setConnectOutput(data.success ? data.connection : { error: data.error });
+    } catch (error) { setConnectOutput({ error: error.message }); }
   };
 
   const handleStopTunnel = async () => {
@@ -191,6 +208,19 @@ export default function SettingsPage() {
               <code className="text-sm text-brand-400 font-mono block break-all">{tunnel.url}/v1</code>
             </div>
           )}
+        </div>
+      </Card>
+
+      <Card title="CLI and Local Proxy Connect" icon="terminal" subtitle="Generate safe OpenAI-compatible connection settings for authorized tools">
+        <div className="space-y-4">
+          <p className="text-sm text-text-muted">Choose a documented or local profile, then point your CLI or local app at this gateway. Provider credentials stay server-side; this panel never imports cookies, browser sessions, or passwords.</p>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <label className="text-xs text-text-muted">Profile<select value={connectProfile} onChange={(e) => setConnectProfile(e.target.value)} className="mt-1 w-full h-10 rounded-lg border border-border bg-bg px-3 text-sm text-text-main">{profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.label}</option>)}</select></label>
+            <label className="text-xs text-text-muted">Gateway/base URL<input value={connectBaseUrl} onChange={(e) => setConnectBaseUrl(e.target.value)} placeholder="http://127.0.0.1:20127/v1" className="mt-1 w-full h-10 rounded-lg border border-border bg-bg px-3 text-sm text-text-main" /></label>
+            <label className="text-xs text-text-muted">Model (optional)<input value={connectModel} onChange={(e) => setConnectModel(e.target.value)} placeholder="provider/model-id" className="mt-1 w-full h-10 rounded-lg border border-border bg-bg px-3 text-sm text-text-main" /></label>
+          </div>
+          <Button variant="primary" size="sm" icon="content_copy" onClick={handleGenerateConnection}>Generate connection config</Button>
+          {connectOutput && <pre className="p-4 rounded-xl bg-bg border border-border text-xs text-text-muted overflow-auto whitespace-pre-wrap">{JSON.stringify(connectOutput, null, 2)}</pre>}
         </div>
       </Card>
 

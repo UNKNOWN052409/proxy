@@ -492,3 +492,11 @@ The API is available at `GET /api/config/tunnel` and `POST /api/config/tunnel` w
 For production, the dashboard must have a strong password, the public API must require gateway authentication, and the named tunnel should use an explicit hostname and least-privilege ingress rule. A monitor can detect and restart the connector or gateway process, but it cannot guarantee that an upstream provider, DNS service, VPS, or network remains available; external alerting and a service supervisor are still recommended.
 
 Tailscale is not automatically enabled because it requires a user-owned tailnet and authentication state. It remains a suitable private-network alternative when access should be restricted to the user's own devices rather than a public domain.
+
+## Dual tunnel modes and local CLI connection profiles
+
+The dashboard distinguishes a **long-running Quick Tunnel relay** from a **persistent user-owned named tunnel**. Quick Tunnel mode can be monitored and restarted while the gateway process is alive, but its `trycloudflare.com` hostname remains temporary and is not a permanent domain. Permanent access requires a user-owned Cloudflare named tunnel, DNS hostname, and authenticated connector configuration. The gateway does not create Cloudflare account resources or collect login credentials automatically.
+
+The Settings page also exposes safe connection profiles for Pi Mono, Prime, Claude-compatible, Codex-compatible, OpenCode local, Gemini-compatible, Qwen-compatible, Kimi-compatible, Grok-compatible, JCode-compatible, and generic custom OpenAI-compatible clients. These are protocol presets, not claims of official provider integration. Profile generation emits a redacted base URL, model, authorization-header template, tool/vision capability flags, and an environment-variable name. It never imports cookies, browser sessions, passwords, or undocumented OAuth material. OpenCode is restricted to loopback/private URLs unless the operator explicitly uses a documented trusted configuration.
+
+The connection endpoint is `GET/POST /api/config/connect`. It generates local proxy settings so authorized CLI tools can point to the gateway's OpenAI-compatible `/v1` endpoint. Provider credentials remain server-side and must be configured through the encrypted credential workflow.
