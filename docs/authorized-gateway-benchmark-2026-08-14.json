@@ -1,0 +1,79 @@
+{
+  "createdAt": "2026-08-14T05:41:59.516Z",
+  "target": {
+    "surface": "standalone /v1/chat/completions",
+    "upstream": "authorized OpenAI-compatible endpoint",
+    "modelConfigured": true
+  },
+  "stages": [
+    {
+      "requestedRpm": 10,
+      "durationSeconds": 60,
+      "requestCount": 10,
+      "successfulOpenAiResponses": 0,
+      "successRate": 0,
+      "statusCounts": {
+        "502": 10
+      },
+      "errorTypeCounts": {
+        "upstream_error": 10
+      },
+      "latencyMs": {
+        "min": 8986.3,
+        "p50": 9995.7,
+        "p95": 13343.8,
+        "max": 13343.8
+      }
+    },
+    {
+      "requestedRpm": 100,
+      "durationSeconds": 60,
+      "requestCount": 100,
+      "successfulOpenAiResponses": 0,
+      "successRate": 0,
+      "statusCounts": {
+        "429": 83,
+        "502": 17
+      },
+      "errorTypeCounts": {
+        "upstream_error": 100
+      },
+      "latencyMs": {
+        "min": 6895.7,
+        "p50": 7606.2,
+        "p95": 10212.2,
+        "max": 13227.5
+      }
+    },
+    {
+      "requestedRpm": 500,
+      "durationSeconds": 60,
+      "requestCount": 500,
+      "successfulOpenAiResponses": 0,
+      "successRate": 0,
+      "statusCounts": {
+        "429": 496,
+        "502": 4
+      },
+      "errorTypeCounts": {
+        "upstream_error": 500
+      },
+      "latencyMs": {
+        "min": 7090.5,
+        "p50": 20312.2,
+        "p95": 27713.5,
+        "max": 29534.4
+      }
+    }
+  ],
+  "gatewayRssMiB": {
+    "samples": 893,
+    "peak": 114.16,
+    "p50": 81.73
+  },
+  "notes": [
+    "No credential, endpoint URL, gateway API key, request prompts, or upstream response text is written to this report.",
+    "A non-2xx result is reported as upstream/gateway evidence, not silently counted as success.",
+    "This benchmark uses an isolated temporary HOME and removes all generated gateway state when it exits."
+  ]
+}

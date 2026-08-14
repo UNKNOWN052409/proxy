@@ -373,3 +373,27 @@ test.describe('Request Queue - Drain', () => {
     assert.ok(elapsed < 50, 'Should resolve immediately');
   });
 });
+
+test.describe('Request Queue - Bounded Backlog', () => {
+  test('rejects only requests beyond the configured pending backlog', async () => {
+    const queue = new RequestQueue({ maxConcurrency: 1, maxQueueSize: 1 });
+    let releaseFirst;
+    const first = queue.enqueue(() => new Promise((resolve) => { releaseFirst = resolve; }));
+    const second = queue.enqueue(() => Promise.resolve('second'));
+
+    await assert.rejects(
+      () => queue.enqueue(() => Promise.resolve('overflow')),
+      { code: 'queue_full', message: 'Request queue is at capacity' },
+    );
+
+    const overloaded = queue.getStats();
+    assert.strictEqual(overloaded.active, 1);
+    assert.strictEqual(overloaded.queued, 1);
+    assert.strictEqual(overloaded.rejected, 1);
+    assert.strictEqual(overloaded.maxQueueSize, 1);
+
+    releaseFirst('first');
+    assert.deepStrictEqual(await Promise.all([first, second]), ['first', 'second']);
+    assert.strictEqual(queue.getStats().queued, 0);
+  });
+});

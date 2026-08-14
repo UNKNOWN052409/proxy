@@ -14,8 +14,8 @@ export default function DashboardHome() {
   const [timePeriod, setTimePeriod] = useState("7d"); // Default to 7 days
 
   const endpointUrl = typeof window !== "undefined"
-    ? `${window.location.protocol}//${window.location.hostname}:20127`
-    : "http://localhost:20127";
+    ? `${window.location.protocol}//${window.location.hostname}:2018`
+    : "http://localhost:2018";
 
   useEffect(() => {
     setLoading(true);

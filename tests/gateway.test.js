@@ -5,7 +5,7 @@ import http from "node:http";
 
 import { __testables as config } from "../src/lib/gateway/config.js";
 import { normalizeNativeToolRequest, normalizeNativeToolCompletion, parseClientManagedToolResponse } from "../src/lib/gateway/tools.js";
-import { runReliable, getReliabilityStats, clearReliabilityState } from "../src/lib/gateway/reliability.js";
+import { runReliable, getReliabilityStats, clearReliabilityState, __testables as reliability } from "../src/lib/gateway/reliability.js";
 import { validateImageUrl, countImages } from "../src/lib/gateway/vision.js";
 import { createChatCompletion, messageText } from "../src/lib/gateway/openai.js";
 import { __testables as runtime, getGatewayRuntimeState, importProviderModels, restoreGatewayRuntimeState } from "../src/lib/gateway/runtime-store.js";
@@ -458,6 +458,21 @@ test("reliability layer retries timeout once after configured delay and reuses i
   assert.ok(elapsed >= 5);
   assert.ok(getReliabilityStats().maxConcurrency >= 1);
   clearReliabilityState();
+});
+
+test("reliability queue returns a clean overload error when the bounded backlog is full", async () => {
+  clearReliabilityState();
+  const originalMaxQueueSize = reliability.queue.maxQueueSize;
+  reliability.queue.maxQueueSize = 0;
+  try {
+    await assert.rejects(
+      () => runReliable({ operation: async () => "not-run" }),
+      (error) => error.status === 503 && error.type === "queue_overloaded" && error.code === null,
+    );
+  } finally {
+    reliability.queue.maxQueueSize = originalMaxQueueSize;
+    clearReliabilityState();
+  }
 });
 
 test("reliability queue manages concurrent requests without dropping them", async () => {

@@ -1,29 +1,41 @@
 // src/mitm/config.js
 const IS_DEV = process.env.NODE_ENV !== "production";
 
-const MITM_CONFIG = {
-  // Disabled by default: this legacy interception service is not part of the compliant gateway.
-  ENABLED: process.env.ENABLE_LEGACY_MITM === "true" && process.env.LEGACY_MITM_ACK === "I_UNDERSTAND_LOCAL_DEBUG_ONLY",
+function isLoopbackHost(value) {
+  const host = String(value || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+  return host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "::1";
+}
 
-  // Proxy settings
-  // WARNING: Port 443 requires administrator/root privileges on most systems
+function localTargets() {
+  return String(process.env.MITM_LOCAL_TARGETS || "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+    .filter(isLoopbackHost)
+    .slice(0, 16);
+}
+
+const TARGET_HOSTS = localTargets();
+
+const MITM_CONFIG = {
+  // This retired compatibility component is disabled unless an administrator
+  // explicitly enables it for loopback-only traffic they own and control.
+  ENABLED: process.env.ENABLE_LEGACY_MITM === "true"
+    && process.env.LEGACY_MITM_ACK === "I_UNDERSTAND_LOCAL_DEBUG_ONLY"
+    && TARGET_HOSTS.length > 0,
+
+  // Port 443 requires administrator/root privileges on most systems.
   LOCAL_PORT: 443,
-  ROUTER_BASE: process.env.MITM_ROUTER_BASE || "http://localhost:20127",
+  ROUTER_BASE: process.env.MITM_ROUTER_BASE || "http://localhost:2018",
   API_KEY: process.env.ROUTER_API_KEY || null,
 
-  // Target hosts to intercept
-  TARGET_HOSTS: [
-    "runtime.us-east-1.kiro.dev",
-    "codewhisperer.us-east-1.amazonaws.com",
-    "q.us-east-1.amazonaws.com",
-  ],
+  // Only localhost / .localhost / loopback IPs supplied by the administrator.
+  // Third-party provider domains, browser sessions, cookies, and private
+  // headers are intentionally outside the supported gateway boundary.
+  TARGET_HOSTS,
 
-  // SSL/TLS settings
   ENABLE_FILE_LOG: IS_DEV,
-
-  // Host rewrite (avoid rate limits)
-  // Empty by default; populate with { "original.host": "rewritten.host" } mappings as needed
   HOST_REWRITE: {},
 };
 
-export { MITM_CONFIG, IS_DEV };
+export { MITM_CONFIG, IS_DEV, isLoopbackHost, localTargets };

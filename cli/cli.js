@@ -3,7 +3,7 @@
 /**
  * kiro-proxy CLI — Universal AI Proxy
  * Usage:
- *   kiro-proxy serve [--port 20127]
+ *   kiro-proxy serve [--port 2018]
  *   kiro-proxy import <file.json>
  *   kiro-proxy status
  *   kiro-proxy help
@@ -31,7 +31,7 @@ Usage:
   kiro-proxy help                Show this help
 
 Options:
-  --port, -p    Port number (default: 20127)
+  --port, -p    Port number (default: 2018)
   --host        Host address (default: 0.0.0.0)
   --verbose, -v Enable verbose logging
 
@@ -46,7 +46,7 @@ Examples:
 
 const args = minimist(process.argv.slice(2), {
   alias: { p: "port", v: "verbose", h: "help" },
-  default: { port: 20127, host: "0.0.0.0", verbose: false },
+  default: { port: 2018, host: "0.0.0.0", verbose: false },
 });
 
 const command = args._[0] || "help";

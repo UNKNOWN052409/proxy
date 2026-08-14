@@ -2,7 +2,7 @@ import { buildConnection, listProfiles } from "@/lib/gateway/cli-profiles";
 import { userConfig } from "@/lib/config/store";
 
 export async function GET() {
-  return Response.json({ profiles: listProfiles(), gateway: { baseUrl: `http://127.0.0.1:${userConfig.get().port || 20127}/v1`, authRequired: true } });
+  return Response.json({ profiles: listProfiles(), gateway: { baseUrl: `http://127.0.0.1:${userConfig.get().port || 2018}/v1`, authRequired: true } });
 }
 
 export async function POST(request) {

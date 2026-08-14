@@ -226,7 +226,7 @@ export default function SettingsPage() {
           <p className="text-sm text-text-muted">Choose a documented or local profile, then point your CLI or local app at this gateway. Provider credentials stay server-side; this panel never imports cookies, browser sessions, or passwords.</p>
           <div className="grid sm:grid-cols-3 gap-3">
             <label className="text-xs text-text-muted">Profile<select value={connectProfile} onChange={(e) => setConnectProfile(e.target.value)} className="mt-1 w-full h-10 rounded-lg border border-border bg-bg px-3 text-sm text-text-main">{profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.label}</option>)}</select></label>
-            <label className="text-xs text-text-muted">Gateway/base URL<input value={connectBaseUrl} onChange={(e) => setConnectBaseUrl(e.target.value)} placeholder="http://127.0.0.1:20127/v1" className="mt-1 w-full h-10 rounded-lg border border-border bg-bg px-3 text-sm text-text-main" /></label>
+            <label className="text-xs text-text-muted">Gateway/base URL<input value={connectBaseUrl} onChange={(e) => setConnectBaseUrl(e.target.value)} placeholder="http://127.0.0.1:2018/v1" className="mt-1 w-full h-10 rounded-lg border border-border bg-bg px-3 text-sm text-text-main" /></label>
             <label className="text-xs text-text-muted">Model (optional)<input value={connectModel} onChange={(e) => setConnectModel(e.target.value)} placeholder="provider/model-id" className="mt-1 w-full h-10 rounded-lg border border-border bg-bg px-3 text-sm text-text-main" /></label>
           </div>
           <div className="flex flex-wrap gap-2">

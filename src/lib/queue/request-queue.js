@@ -12,6 +12,8 @@ const PRIORITY = {
 class RequestQueue {
   constructor(options = {}) {
     this.maxConcurrency = options.maxConcurrency || 50;
+    const configuredBacklog = Number(options.maxQueueSize);
+    this.maxQueueSize = Number.isFinite(configuredBacklog) && configuredBacklog >= 0 ? configuredBacklog : Infinity;
     this.paused = false;
 
     // Track active requests
@@ -40,6 +42,13 @@ class RequestQueue {
   enqueue(fn, priority = 'normal') {
     if (typeof fn !== 'function') {
       return Promise.reject(new Error('Request must be a function'));
+    }
+
+    if (this.stats.queued >= this.maxQueueSize) {
+      this.stats.rejected++;
+      const error = new Error("Request queue is at capacity");
+      error.code = "queue_full";
+      return Promise.reject(error);
     }
 
     const priorityLevel = this._getPriorityLevel(priority);
@@ -159,6 +168,7 @@ class RequestQueue {
         low: this.queues[PRIORITY.LOW].length
       },
       maxConcurrency: this.maxConcurrency,
+      maxQueueSize: Number.isFinite(this.maxQueueSize) ? this.maxQueueSize : null,
       paused: this.paused
     };
   }

@@ -78,7 +78,7 @@ async function checkUrl(url, timeoutMs = 5000) {
 
 async function monitor() {
   if (!state.enabled) return;
-  const localUrl = `http://127.0.0.1:${Number(userConfig.get().port || 20127)}`;
+  const localUrl = `http://127.0.0.1:${Number(userConfig.get().port || 2018)}`;
   const localHealthy = await checkUrl(localUrl);
   const publicHealthy = state.url ? await checkUrl(state.url) : null;
   state.localHealthy = localHealthy;
@@ -151,7 +151,7 @@ function attachChild(proc) {
   });
 }
 
-export async function start({ mode = "quick", port = userConfig.get().port || 20127, name = null, hostname = null } = {}) {
+export async function start({ mode = "quick", port = userConfig.get().port || 2018, name = null, hostname = null } = {}) {
   if (child && child.exitCode === null) return publicState();
   if (mode === "named" && !name) throw new Error("Named Cloudflare tunnels require an existing tunnel name");
   const bin = binaryPath();
@@ -201,7 +201,7 @@ export async function status() {
 }
 
 export async function restart() {
-  const current = { mode: state.mode || "quick", port: state.port || userConfig.get().port || 20127, name: state.name || null, hostname: state.hostname || null };
+  const current = { mode: state.mode || "quick", port: state.port || userConfig.get().port || 2018, name: state.name || null, hostname: state.hostname || null };
   await stop();
   return start(current);
 }

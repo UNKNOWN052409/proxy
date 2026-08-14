@@ -10,17 +10,17 @@ export default function FeaturesSection() {
     {
       icon: "account_balance",
       title: "Import Accounts",
-      description: "Import existing Kiro accounts from 9Router, Kiro IDE, or any proxy. Multiple imports accumulate — never lose your accounts.",
+      description: "Import authorized API keys and official access tokens through encrypted, redacted file imports. Sensitive browser material is never accepted.",
     },
     {
       icon: "model_training",
       title: "50+ AI Models",
-      description: "Claude Opus 4.8, Claude Sonnet 5, GPT-5.6 Sol/Terra/Luna, DeepSeek 3.2, Qwen3 Coder, GLM 5, MiniMax M2.5, and more.",
+      description: "Catalog-driven provider and model discovery with tenant allowlists, health status, authenticity evidence, and explicit availability notes.",
     },
     {
       icon: "shield",
       title: "Multiple Auth Methods",
-      description: "Support for AWS Builder ID, IAM Identity Center, Google, GitHub, API Keys, Microsoft Entra ID — all in one place.",
+      description: "Official OAuth, device-code, workload-identity, and API-key options are shown only where the provider documents them.",
     },
     {
       icon: "stream",
@@ -30,12 +30,12 @@ export default function FeaturesSection() {
     {
       icon: "devices",
       title: "Works Everywhere",
-      description: "Local proxy runs on your machine. Connect any tool by pointing it to http://localhost:20127/v1. No cloud dependency.",
+      description: "Local gateway runs on your machine. Connect compatible tools at http://localhost:2018/v1, or deploy through an authorized server endpoint.",
     },
     {
       icon: "sync",
       title: "Accumulative Imports",
-      description: "Import accounts from multiple sources. Each import adds to your existing accounts. No duplicates, no overwrites.",
+      description: "Review, test, enable, disable, and export safe account metadata without exposing imported secret values.",
     },
     {
       icon: "palette",

@@ -27,7 +27,7 @@ npm run gateway
 The provider secret stays server-side. Clients authenticate to the gateway with a separately created gateway key:
 
 ```bash
-curl http://127.0.0.1:20127/v1/models \
+curl http://127.0.0.1:2018/v1/models \
   -H 'Authorization: Bearer <gateway-key>'
 ```
 
@@ -82,14 +82,14 @@ If a selected model is text-only and its provider defines `visionProvider`, the 
 | Remote URLs | Rejected; the gateway does not fetch external image URLs. |
 | Image instructions | The vision prompt explicitly treats any instructions embedded in an image as untrusted content. |
 
-For a native vision-capable provider, image content is forwarded without this text fallback.
+For a native vision-capable provider, image content is forwarded without this text fallback. See [vision-fallback.md](./vision-fallback.md) for the complete configuration and operational boundary.
 
 ## API contract
 
 The API accepts the standard OpenAI-style chat request body. The gateway does not use provider account passwords; use a bearer gateway key instead.
 
 ```bash
-curl http://127.0.0.1:20127/v1/chat/completions \
+curl http://127.0.0.1:2018/v1/chat/completions \
   -H 'Authorization: Bearer <gateway-key>' \
   -H 'Content-Type: application/json' \
   -d '{
@@ -112,10 +112,10 @@ The full application provides normalized response streaming by returning a compl
 | `GATEWAY_OPENAI_SUPPORTS_TOOLS` | Set to `false` to enable client-managed tool compatibility. |
 | `GATEWAY_OPENAI_SUPPORTS_VISION` | Set to `true` only when the configured models accept image content. |
 | `GATEWAY_ANTHROPIC_API_KEY` | Shortcut provider key for an Anthropic-compatible API. |
-| `GATEWAY_PORT` | Standalone gateway port; default is `20127`. |
+| `GATEWAY_PORT` | Standalone gateway port; default is `2018`. |
 | `GATEWAY_HOST` | Standalone bind address; default is `127.0.0.1`. |
 | `GATEWAY_MAX_BODY_BYTES` | Standalone JSON request limit; default is two MiB. |
-| `GATEWAY_CORS_ORIGIN` | Optional browser origin override; default is `http://localhost:20127`. Set one specific trusted origin for shared deployments. |
+| `GATEWAY_CORS_ORIGIN` | Optional browser origin override; default is `http://localhost:2018`. Set one specific trusted origin for shared deployments. |
 
 ## Verification
 
@@ -197,7 +197,7 @@ Model imports preserve bounded metadata: `alias`, `name`, `description`, `upstre
 
 Usage analytics record input tokens, output tokens, total tokens, latency, success rate, and estimated provider cost when pricing metadata is configured. Cost remains an estimate unless the upstream provider exposes authoritative billing data.
 
-The old Kiro account-import endpoint is disabled with HTTP 410. The legacy MITM server refuses startup unless both `ENABLE_LEGACY_MITM=true` and `LEGACY_MITM_ACK=I_UNDERSTAND_LOCAL_DEBUG_ONLY` are explicitly set for authorized local debugging. These legacy paths are not part of the compliant gateway.
+The old Kiro account-import endpoint is disabled with HTTP 410. The retired local debug component refuses startup unless `ENABLE_LEGACY_MITM=true`, `LEGACY_MITM_ACK=I_UNDERSTAND_LOCAL_DEBUG_ONLY`, and a loopback-only `MITM_LOCAL_TARGETS` allowlist are explicitly set for traffic the administrator owns and controls. Third-party provider domains are filtered out. These legacy paths are not part of the compliant gateway.
 
 ## API Authenticity Verification and API Legitimacy Validation
 

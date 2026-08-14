@@ -1,0 +1,85 @@
+{
+  "createdAt": "2026-08-14T05:47:57.046Z",
+  "target": {
+    "surface": "standalone /v1/chat/completions",
+    "upstream": "authorized OpenAI-compatible endpoint",
+    "modelConfigured": true
+  },
+  "stages": [
+    {
+      "requestedRpm": 10,
+      "durationSeconds": 60,
+      "requestCount": 10,
+      "successfulOpenAiResponses": 0,
+      "successRate": 0,
+      "statusCounts": {
+        "502": 10
+      },
+      "errorTypeCounts": {
+        "upstream_error": 10
+      },
+      "latencyMs": {
+        "min": 8410.7,
+        "p50": 10194.5,
+        "p95": 11065.6,
+        "max": 11065.6
+      }
+    },
+    {
+      "requestedRpm": 100,
+      "durationSeconds": 60,
+      "requestCount": 100,
+      "successfulOpenAiResponses": 0,
+      "successRate": 0,
+      "statusCounts": {
+        "429": 83,
+        "502": 9,
+        "504": 8
+      },
+      "errorTypeCounts": {
+        "upstream_error": 92,
+        "upstream_timeout": 8
+      },
+      "latencyMs": {
+        "min": 8914,
+        "p50": 12609.7,
+        "p95": 21113.7,
+        "max": 23603
+      }
+    },
+    {
+      "requestedRpm": 500,
+      "durationSeconds": 60,
+      "requestCount": 500,
+      "successfulOpenAiResponses": 0,
+      "successRate": 0,
+      "statusCounts": {
+        "429": 154,
+        "502": 30,
+        "503": 315,
+        "504": 1
+      },
+      "errorTypeCounts": {
+        "upstream_error": 184,
+        "queue_overloaded": 315,
+        "upstream_timeout": 1
+      },
+      "latencyMs": {
+        "min": 2.9,
+        "p50": 4.4,
+        "p95": 74608.1,
+        "max": 78743.4
+      }
+    }
+  ],
+  "gatewayRssMiB": {
+    "samples": 1114,
+    "peak": 84.71,
+    "p50": 78.62
+  },
+  "notes": [
+    "No credential, endpoint URL, gateway API key, request prompts, or upstream response text is written to this report.",
+    "A non-2xx result is reported as upstream/gateway evidence, not silently counted as success.",
+    "This benchmark uses an isolated temporary HOME and removes all generated gateway state when it exits."
+  ]
+}

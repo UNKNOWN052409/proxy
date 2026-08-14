@@ -1,1 +1,5 @@
-Logo sources: Simple Icons CDN (https://simpleicons.org/)
+Logo sources:
+- Simple Icons CDN (https://simpleicons.org/)
+- LobeHub static SVG icon set, version 1.94.0 (https://github.com/lobehub/lobe-icons), MIT License
+
+The dashboard displays these marks only to identify configured third-party providers. It does not imply endorsement, partnership, or sponsorship.

@@ -4,7 +4,7 @@ import { log, err } from "../logger.js";
 
 const ROUTER_BASE = String(MITM_CONFIG.ROUTER_BASE)
   .trim()
-  .replace(/\/+$/, "") || "http://localhost:20127";
+  .replace(/\/+$/, "") || "http://localhost:2018";
 const API_KEY = MITM_CONFIG.API_KEY;
 
 // Headers that must not be forwarded to the main router

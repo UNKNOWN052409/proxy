@@ -16,7 +16,7 @@ after(() => {
 
 test("SQL config store exposes defaults and persists scalar/object values", () => {
   const initial = userConfig.get();
-  assert.equal(initial.port, 20127);
+  assert.equal(initial.port, 2018);
   assert.equal(userConfig.hasPassword(), false);
   userConfig.set("port", 2100);
   userConfig.setAll({ tunnelProvider: "cloudflare", tunnelStatus: "running", flags: { healthy: true } });
@@ -49,7 +49,7 @@ test("tunnel and domain helpers update SQL state", () => {
 test("reset clears SQL keys and restores defaults", () => {
   userConfig.reset();
   const config = userConfig.get();
-  assert.equal(config.port, 20127);
+  assert.equal(config.port, 2018);
   assert.equal(config.passwordHash, null);
   assert.equal(config.tunnelProvider, null);
   assert.equal(userConfig.verifyPassword("anything"), true);

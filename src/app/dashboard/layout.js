@@ -170,13 +170,13 @@ export default function DashboardLayout({ children }) {
 
             {/* Quick endpoint link */}
             <a
-              href="http://localhost:20127"
+              href="http://localhost:2018"
               target="_blank"
               rel="noopener noreferrer"
               className="hidden sm:flex h-8 items-center gap-1.5 px-3 rounded-lg bg-brand-500/10 text-brand-400 text-xs font-medium border border-brand-500/20 hover:bg-brand-500/20 transition-colors"
             >
               <span className="material-symbols-outlined text-[14px]">open_in_new</span>
-              localhost:20127
+              localhost:2018
             </a>
           </div>
         </header>

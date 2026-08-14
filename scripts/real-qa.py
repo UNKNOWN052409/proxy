@@ -96,7 +96,7 @@ def main():
     models = []
 
     started = time.monotonic()
-    response, elapsed, ctype, data, text, error = request("GET", "/v1/models")
+    response, elapsed, ctype, data, text, error = request("GET", "/models")
     if response is None:
         results.append(record("MOD-01", "model registry", "200 JSON model list", f"transport error: {error}", "BLOCKED", started, evidence={"content_type": ctype}, severity="High"))
     else:
@@ -107,11 +107,11 @@ def main():
             results.append(record("MOD-01", "model registry", "OpenAI model list", f"HTTP {response.status_code}", "BLOCKED" if response.status_code in {401, 403, 404} else "FAIL", started, response.status_code, {"content_type": ctype, "error_shape": isinstance(data, dict), "preview": text[:200]}, "High"))
 
     started = time.monotonic()
-    response, elapsed, ctype, data, text, error = request("GET", "/v1/models", key="invalid-test-key")
+    response, elapsed, ctype, data, text, error = request("GET", "/models", key="invalid-test-key")
     results.append(record("AUTH-02", "authentication", "invalid key rejected cleanly", f"transport error: {error}" if response is None else f"HTTP {response.status_code}", "BLOCKED" if response is None else ("PASS" if response.status_code in {401, 403} else "FAIL"), started, None if response is None else response.status_code, {"content_type": ctype, "preview": text[:200]}, "Medium"))
 
     started = time.monotonic()
-    response, elapsed, ctype, data, text, error = request("GET", "/v1/models", key=KEY or None)
+    response, elapsed, ctype, data, text, error = request("GET", "/models", key=KEY or None)
     if response is None:
         results.append(record("AUTH-03", "authentication", "supplied key accepted or cleanly rejected", f"transport error: {error}", "BLOCKED", started, evidence={"content_type": ctype}, severity="High"))
     else:
@@ -125,7 +125,7 @@ def main():
     def test_model(model: str):
         body = {"model": model, "messages": [{"role": "user", "content": "Reply with exactly: gateway-test-ok"}], "max_tokens": 10, "temperature": 0}
         started = time.monotonic()
-        response, elapsed, ctype, data, text, error = request("POST", "/v1/chat/completions", body, key=KEY or None)
+        response, elapsed, ctype, data, text, error = request("POST", "/chat/completions", body, key=KEY or None)
         if response is None:
             return record("CHAT-01", "basic chat", "OpenAI completion JSON", f"{model}: transport error: {error}", "BLOCKED", started, evidence={"model": model}, severity="High")
         shape = isinstance(data, dict) and isinstance(data.get("choices"), list)
@@ -136,18 +136,18 @@ def main():
 
     # Bounded negative and streaming checks from the QA matrix.
     started = time.monotonic()
-    response, elapsed, ctype, data, text, error = raw_request("POST", "/v1/chat/completions", "{", key=KEY or None)
+    response, elapsed, ctype, data, text, error = raw_request("POST", "/chat/completions", "{", key=KEY or None)
     results.append(record("ERR-02", "error handling", "malformed JSON returns clean error", f"transport error: {error}" if response is None else f"HTTP {response.status_code}", "BLOCKED" if response is None else ("PASS" if 400 <= response.status_code < 500 and isinstance(data, dict) else "FAIL"), started, None if response is None else response.status_code, {"content_type": ctype, "preview": text[:200]}, "Medium"))
 
     started = time.monotonic()
-    response, elapsed, ctype, data, text, error = request("POST", "/v1/chat/completions", {"model": "__invalid_model__", "messages": [{"role": "user", "content": "test"}], "max_tokens": 1}, key=KEY or None)
+    response, elapsed, ctype, data, text, error = request("POST", "/chat/completions", {"model": "__invalid_model__", "messages": [{"role": "user", "content": "test"}], "max_tokens": 1}, key=KEY or None)
     results.append(record("ERR-03", "error handling", "invalid model returns clean error", f"transport error: {error}" if response is None else f"HTTP {response.status_code}", "BLOCKED" if response is None else ("PASS" if response.status_code in {400, 401, 403, 404, 422} else "FAIL"), started, None if response is None else response.status_code, {"content_type": ctype, "preview": text[:200]}, "Medium"))
 
     if models:
         model = models[0]
         body = {"model": model, "messages": [{"role": "user", "content": "Reply with one short word."}], "max_tokens": 4, "temperature": 0, "stream": True}
         started = time.monotonic()
-        response, elapsed, ctype, data, text, error = request("POST", "/v1/chat/completions", body, key=KEY or None, stream=True)
+        response, elapsed, ctype, data, text, error = request("POST", "/chat/completions", body, key=KEY or None, stream=True)
         if response is None:
             results.append(record("STREAM-01", "streaming", "SSE or clean unsupported error", f"transport error: {error}", "BLOCKED", started, evidence={"model": model}, severity="High"))
         else:
@@ -159,13 +159,13 @@ def main():
         model = models[0]
         body = {"model": model, "messages": [{"role": "user", "content": "Reply with one JSON object containing ok=true."}], "max_tokens": 20, "temperature": 0, "response_format": {"type": "json_object"}}
         started = time.monotonic()
-        response, elapsed, ctype, data, text, error = request("POST", "/v1/chat/completions", body, key=KEY or None)
+        response, elapsed, ctype, data, text, error = request("POST", "/chat/completions", body, key=KEY or None)
         results.append(record("JSON-01", "structured output", "valid JSON mode or clean unsupported error", f"transport error: {error}" if response is None else f"HTTP {response.status_code}", "BLOCKED" if response is None else ("PASS" if response.ok else "BLOCKED" if response.status_code in {400, 401, 403, 404, 408, 429, 500, 502, 503, 504} else "FAIL"), started, None if response is None else response.status_code, {"model": model, "content_type": ctype, "response_keys": list(data.keys())[:20] if isinstance(data, dict) else []}, "Medium"))
 
         tool = {"type": "function", "function": {"name": "gateway_test", "description": "Return a test value", "parameters": {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"], "additionalProperties": False}}}
         body = {"model": model, "messages": [{"role": "user", "content": "Use the gateway_test tool with value ok."}], "tools": [tool], "tool_choice": "auto", "parallel_tool_calls": False, "max_tokens": 30}
         started = time.monotonic()
-        response, elapsed, ctype, data, text, error = request("POST", "/v1/chat/completions", body, key=KEY or None)
+        response, elapsed, ctype, data, text, error = request("POST", "/chat/completions", body, key=KEY or None)
         results.append(record("TOOL-01", "tools", "tool call or clean unsupported error", f"transport error: {error}" if response is None else f"HTTP {response.status_code}", "BLOCKED" if response is None else ("PASS" if response.ok else "BLOCKED" if response.status_code in {400, 401, 403, 404, 408, 429, 500, 502, 503, 504} else "FAIL"), started, None if response is None else response.status_code, {"model": model, "content_type": ctype, "response_keys": list(data.keys())[:20] if isinstance(data, dict) else []}, "Medium"))
 
     if RUN_CONCURRENCY and models:

@@ -22,7 +22,7 @@ const DEFAULTS = {
   tunnelStatus: "stopped",
   tunnelLastCheckAt: null,
   tunnelLastError: null,
-  port: 20127,
+  port: 2018,
 };
 
 let cache = null;

@@ -28,7 +28,7 @@ function shellQuote(value) { return `'${String(value).replaceAll("'", "'\\''")}'
 
 function buildSetup({ profileId = "custom", baseUrl, model = null, gatewayUrl = null } = {}) {
   const profile = getProfile(profileId);
-  const normalizedBaseUrl = cleanUrl(baseUrl || gatewayUrl || "http://127.0.0.1:20127/v1");
+  const normalizedBaseUrl = cleanUrl(baseUrl || gatewayUrl || "http://127.0.0.1:2018/v1");
   if (profile.localOnly && !["localhost", "127.0.0.1", "::1"].includes(new URL(normalizedBaseUrl).hostname)) throw new Error("The OpenCode profile is restricted to local/private configuration");
   const selectedModel = model || "provider/model-id";
   const env = {

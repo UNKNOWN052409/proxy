@@ -21,7 +21,7 @@ export default function EndpointPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
 
-  const baseUrl = useMemo(() => typeof window === "undefined" ? "http://localhost:20127/v1" : `${window.location.origin}/v1`, []);
+  const baseUrl = useMemo(() => typeof window === "undefined" ? "http://localhost:2018/v1" : `${window.location.origin}/v1`, []);
 
   const load = async () => {
     const [gatewayRes, keyRes] = await Promise.all([fetch("/api/gateway/status", { cache: "no-store" }), fetch("/api/keys", { cache: "no-store" })]);

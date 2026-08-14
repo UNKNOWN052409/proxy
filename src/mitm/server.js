@@ -212,7 +212,8 @@ function createServer() {
   generateRootCA();
 
   // Create default cert for server (fallback)
-  const defaultHost = MITM_CONFIG.TARGET_HOSTS[0] || "kiro.dev";
+  const defaultHost = MITM_CONFIG.TARGET_HOSTS[0];
+  if (!defaultHost) throw new Error("A loopback MITM_LOCAL_TARGETS allowlist is required for local debug mode");
   const defaultCert = getCertForDomain(defaultHost);
 
   server = https.createServer(
@@ -232,7 +233,7 @@ function createServer() {
  */
 function start() {
   if (!MITM_CONFIG.ENABLED) {
-    return Promise.reject(new Error("Legacy MITM interception is disabled. Set ENABLE_LEGACY_MITM=true and LEGACY_MITM_ACK=I_UNDERSTAND_LOCAL_DEBUG_ONLY only for authorized local debugging."));
+    return Promise.reject(new Error("Local debug compatibility mode is disabled. It requires ENABLE_LEGACY_MITM=true, LEGACY_MITM_ACK=I_UNDERSTAND_LOCAL_DEBUG_ONLY, and a loopback-only MITM_LOCAL_TARGETS allowlist."));
   }
   return new Promise((resolve, reject) => {
     if (server) {

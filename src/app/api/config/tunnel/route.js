@@ -104,7 +104,7 @@ export async function GET() {
 
 export async function POST(request) {
   try {
-    const { action, domain, provider = "cloudflare", mode = "quick", name = null, hostname = null, port = userConfig.get().port || 20127 } = await request.json();
+    const { action, domain, provider = "cloudflare", mode = "quick", name = null, hostname = null, port = userConfig.get().port || 2018 } = await request.json();
 
     if (action === "start" && provider === "cloudflare") {
       const result = await cloudflareTunnel.start({ mode, name, hostname, port });

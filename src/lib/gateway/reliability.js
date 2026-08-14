@@ -7,7 +7,12 @@ const DEFAULT_MAX_RETRIES = 1;
 const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;
 const MAX_IDEMPOTENCY_ENTRIES = 2_000;
 
-const queue = new RequestQueue({ maxConcurrency: Number(process.env.GATEWAY_MAX_CONCURRENCY || 50) });
+const configuredConcurrency = Number(process.env.GATEWAY_MAX_CONCURRENCY || 12);
+const configuredBacklog = Number(process.env.GATEWAY_MAX_QUEUE_SIZE || 96);
+const queue = new RequestQueue({
+  maxConcurrency: Number.isFinite(configuredConcurrency) && configuredConcurrency > 0 ? configuredConcurrency : 12,
+  maxQueueSize: Number.isFinite(configuredBacklog) && configuredBacklog >= 0 ? configuredBacklog : 96,
+});
 const idempotency = new Map();
 
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
@@ -42,6 +47,11 @@ export async function runReliable({ operation, idempotencyKey = null, priority =
   const key = idempotencyKey ? String(idempotencyKey).slice(0, 200) : null;
   if (key && idempotency.has(key)) return idempotency.get(key).value;
 
+  const queueStats = queue.getStats();
+  if (queueStats.maxQueueSize !== null && queueStats.queued >= queueStats.maxQueueSize) {
+    throw gatewayError("Gateway queue is at capacity; retry shortly", 503, "queue_overloaded");
+  }
+
   const promise = queue.enqueue(async () => {
     let attempt = 0;
     while (true) {
@@ -63,6 +73,14 @@ export async function runReliable({ operation, idempotencyKey = null, priority =
   return promise;
 }
 
-export function getReliabilityStats() { return { ...queue.getStats(), idempotencyEntries: idempotency.size, timeoutMs: DEFAULT_TIMEOUT_MS, retryDelayMs: DEFAULT_RETRY_DELAY_MS, maxRetries: DEFAULT_MAX_RETRIES }; }
+export function getReliabilityStats() {
+  return {
+    ...queue.getStats(),
+    idempotencyEntries: idempotency.size,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    retryDelayMs: DEFAULT_RETRY_DELAY_MS,
+    maxRetries: DEFAULT_MAX_RETRIES,
+  };
+}
 export function clearReliabilityState() { idempotency.clear(); queue.clear(gatewayError("Reliability queue cleared", 503, "queue_cleared")); }
 export const __testables = { isRetryable, executeWithTimeout, pruneIdempotency, queue, idempotency };

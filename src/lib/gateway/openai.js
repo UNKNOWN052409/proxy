@@ -21,7 +21,7 @@ export function openAiErrorResponse(error) {
 
 export function corsHeaders(extra = {}) {
   return {
-    "Access-Control-Allow-Origin": process.env.GATEWAY_CORS_ORIGIN || "http://localhost:20127",
+    "Access-Control-Allow-Origin": process.env.GATEWAY_CORS_ORIGIN || "http://localhost:2018",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     ...extra,

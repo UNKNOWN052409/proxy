@@ -33,19 +33,19 @@ This audit uses four labels. **Implemented** means a repository runtime path exi
 | Bulk account import with passwords/cookies/browser profile | Not implemented by design | Only official API keys/tokens and approved encrypted account metadata are accepted. |
 | “Ban” detection | Not implemented as a definitive claim | The dashboard reports authentication rejection, expiry, cooldown, rate limit, and quarantine. A provider `401/403` cannot reliably prove an account ban. |
 | Exact upstream remaining quota and paid-plan balances | Partial | The UI has quota telemetry status, but exact numbers appear only if an official provider telemetry/header/API is configured. There is no universal quota scraper or estimator. |
-| Legacy `/api/accounts/test` | Not implemented correctly / migration gap | It imports the legacy `lib/accounts/store`, hardcodes Kiro/OpenAI test URLs, has no current provider runtime config integration, and is not aligned with the encrypted gateway credential pool. This is a real pending fix. |
-| Provider logos | Partial | Provider cards work, but several providers still use monogram fallback instead of local SVG logos. |
-| Sustained 10/100/500 RPM benchmark | Not implemented | No recorded real sustained benchmark against the user-provided endpoint in the current state. Startup RAM measurement is not enough to prove traffic-time memory use. |
-| 100% coverage | Not implemented | Current full-suite coverage run: **89.10% lines**, **73.61% branches**, **90.23% functions**. This is substantially below a 100% target. |
+| Legacy `/api/accounts/test` | Implemented | The route now uses the administrator RBAC guard, configured-provider resolution, encrypted credential storage, a shared redacted verifier, and persisted safe verification metadata. |
+| Provider logos | Implemented with bounded fallback | Local SVG assets are reproducibly fetched from declared, pinned public icon sources for supported catalog cards. A monogram remains only where no approved local mark is available; it does not affect routing. |
+| Sustained 10/100/500 RPM benchmark | Implemented, throughput not certified | Two recorded real runs against the administrator-supplied authorized endpoint are stored under `docs/authorized-gateway-benchmark-*.json`. The guarded run held standalone RSS to **84.71 MiB peak** / **78.62 MiB median**, but upstream completed no chat request, so successful-throughput capacity cannot be claimed. |
+| 100% coverage | Not implemented | Current full-suite coverage run: **90.35% lines**, **73.46% branches**, **91.30% functions**. This is improved, but remains below the requested 100% target. |
 | Real live test against every provider | Not implemented | Automated suite has deterministic fixtures/fake fetch endpoints in multiple tests. Real test results require user-owned authorized credentials and endpoint permissions for each provider. |
 | Production deployment, custom domain, 24/7 tunnel/VPS health | Partial | Configuration/UI code exists, but there is no audited live VPS/domain deployment, DNS validation, tunnel monitoring history, uptime data, or egress-IP evidence for a target host. |
 | Mobile UI verification | Partial | Dashboard uses responsive layout classes, but no manual device/browser compatibility testing is recorded. |
 
 ## Test-fixture-only evidence
 
-The test tree has 19 test files. The full suite passed **198 tests**. Several tests explicitly use fake HTTP responses, local loopback servers, or fixture input to validate deterministic behaviors, including OAuth device flow, endpoint detection, adapter request mapping, retry behavior, health/model parsing, and account tiers. These are appropriate regression tests, but they do not establish live upstream provider success.
+The test tree contains deterministic regression tests alongside controlled live evidence. The complete serial suite currently passes **217 tests**. Several tests explicitly use fake HTTP responses, local loopback servers, or fixture input to validate deterministic behaviors, including OAuth device flow, endpoint detection, adapter request mapping, retry behavior, health/model parsing, and account tiers. These are appropriate regression tests, but they do not establish live upstream provider success.
 
-The most precise current full-suite coverage measurement is **89.10% lines, 73.61% branches, and 90.23% functions**.
+The most precise current full-suite coverage measurement is **90.35% lines, 73.46% branches, and 91.30% functions**.
 
 ## Priority remediation order
 
@@ -60,16 +60,16 @@ The most precise current full-suite coverage measurement is **89.10% lines, 73.6
 
 The legacy `/api/accounts/test` migration gap has now been resolved. The route uses the administrator RBAC guard, configured-provider resolution, encrypted account/credential storage, a shared redacted verification service, and persisted safe verification metadata. It no longer hardcodes Kiro/OpenAI test URLs or relies on the obsolete legacy account record for live verification.
 
-A bounded real verification and standalone gateway benchmark were also run against the administrator-supplied authorized OpenAI-compatible endpoint. The endpoint did **not** produce a successful verified completion for the supplied model during the run: model discovery was blocked at the upstream reverse proxy and chat requests returned endpoint/model errors or timed out. This is recorded as upstream compatibility evidence, not as a gateway success claim. The gateway now preserves safe upstream client statuses (`401`, `403`, `404`, `408`, `409`, `413`, `422`, and `429`) rather than collapsing them into a generic `400` response.
+A bounded real verification and standalone gateway benchmark were also run against the administrator-supplied authorized OpenAI-compatible endpoint. With the supplied authorization, `/models` returned **15 model IDs**. The bounded chat probes did **not** produce a successful verified completion: tested models returned upstream `502` responses, and one listed model returned `402`. The corrected one-request streaming probe also reached the intended non-duplicated path and returned `502`, rather than a gateway route error. This is recorded as upstream compatibility evidence, not as a gateway success claim. The gateway preserves safe upstream client statuses (`401`, `403`, `404`, `408`, `409`, `413`, `422`, and `429`) rather than collapsing them into a generic `400` response. See `docs/real-qa-report-2026-08-14.json` and the sanitized streaming recheck artifacts.
 
-The real 10/100/500 RPM run reached **0 successful OpenAI-shaped responses** because of those upstream failures. Measured gateway RSS had a **74.03 MiB median** and **107.24 MiB peak** under that error-heavy load, so the under-100-MiB sustained-load requirement is **not certified**. A successful-throughput benchmark must be repeated with a provider endpoint/model combination that completes authorized requests.
+The initial real 10/100/500 RPM run reached **0 successful OpenAI-shaped responses** and peaked at **114.16 MiB RSS** under upstream failures and retries. The gateway now defaults to **12** concurrent routed operations with a **96-request** pending-backlog limit, configurable through `GATEWAY_MAX_CONCURRENCY` and `GATEWAY_MAX_QUEUE_SIZE`. It returns a clean `503` `queue_overloaded` error for excess pending work, rather than retaining an unbounded backlog. A repeat real 10/100/500 RPM run held standalone RSS to **84.71 MiB peak** and **78.62 MiB median**, meeting the sub-100-MiB requirement for this error-heavy workload. Its results include upstream `429`/`502`/`504` responses and admission-controlled `503` responses at 500 RPM; successful completion throughput remains unverified until an authorized upstream actually completes requests.
 
-After these changes, the current full-suite coverage is **89.14% lines**, **73.09% branches**, and **90.34% functions**. The 100% coverage target remains unmet. Real provider testing still requires separately authorized credentials for every provider and cannot be substituted by fixtures.
+After these changes, the current full-suite coverage is **90.35% lines**, **73.46% branches**, and **91.30% functions**. The 100% coverage target remains unmet. Real provider testing still requires separately authorized credentials for every provider and cannot be substituted by fixtures.
 
 ### Revised priority remediation order
 
-1. Obtain or configure at least one authorized upstream/model that completes a minimal real chat request, then repeat the 10/100/500 RPM throughput and memory benchmark.
+1. Obtain or configure at least one authorized upstream/model that completes a minimal real chat request, then repeat the 10/100/500 RPM **successful-throughput** benchmark; the guarded error-load RSS target is now measured, but it is not a capacity claim.
 2. Raise branch coverage, especially in `src/lib/kiro/store.js`, generic adapters, runtime-store failure paths, the usage store, tool branches, and OAuth failure/recovery paths.
 3. Complete live image-generation, vision, device-code, cloud-identity, and per-provider fallback verification only with explicitly authorized provider accounts.
-4. Finish local provider SVG assets and execute manual mobile-browser verification.
+4. Execute manual authenticated mobile-browser verification; responsive classes and a production build are present, but a human-device session was not available in this audit.
 5. Deploy to the chosen VPS/domain and record actual tunnel health, egress IP, TLS, uptime, and restart evidence.
