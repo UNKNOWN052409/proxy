@@ -274,7 +274,7 @@ export GATEWAY_QWEN_MODELS='qwen3.7-plus,qwen3.5-plus,qwen3-vl-plus'
 export GATEWAY_QWEN_DEFAULT_MODEL='qwen3.7-plus'
 
 # Or Coding Plan API key
-export DASHSCOPE_API_KEY='sk-sp-provider-issued-secret'
+export DASHSCOPE_API_KEY='<provider-issued-key>'
 export GATEWAY_QWEN_REGION='intl'
 export GATEWAY_QWEN_PLAN='coding-plan'
 export GATEWAY_QWEN_MODELS='qwen3-coder-plus,qwen3.5-plus'

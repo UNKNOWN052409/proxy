@@ -1,9 +1,23 @@
 {
   "type": "module",
-  "name": "kiro-proxy",
+  "name": "npm-uniproxy",
   "version": "1.0.0",
-  "description": "Kiro AI Proxy — OpenAI-compatible proxy with premium UI",
-  "private": true,
+  "description": "Lightweight OpenAI-compatible multi-provider AI gateway with encrypted credentials, tenant policies, routing, retries, and tool bridging.",
+  "private": false,
+  "license": "UNLICENSED",
+  "bin": {
+    "uniproxy": "bin/uniproxy.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "docs/GATEWAY.md",
+    "docs/DEPLOYMENT.md",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "node src/start-next.js dev",
     "build": "next build",
