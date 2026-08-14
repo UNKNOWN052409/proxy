@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [complete-gateway, master, main]
+  pull_request:
+    branches: [complete-gateway, master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-build-package:
+    name: Test, build, package, and safety checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build application
+        run: npm run build
+
+      - name: Validate shell installers
+        run: |
+          bash -n scripts/install.sh
+          bash -n scripts/install-private.sh
+
+      - name: Secret-shaped content scan
+        shell: bash
+        run: |
+          ! grep -RIn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.next \
+            --exclude='*.log' \
+            -E 'ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY' \
+            .
+
+      - name: Inspect npm package boundary
+        run: |
+          npm pack --dry-run --json > /tmp/npm-pack.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/npm-pack.json','utf8'))[0]; const bad=x.files.filter(f=>/(^|\\/)(node_modules|\.git|\.next|coverage|data|gateway\.db|\.env)/.test(f.path)); if(bad.length){console.error(bad); process.exit(1)}; console.log('npm files:', x.files.length, 'size:', x.size)"
+
+  docker-build:
+    name: Docker build validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: test-build-package
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image without secrets
+        run: docker build --pull --tag npm-uniproxy:ci .
+
+      - name: Check image metadata
+        run: docker image inspect npm-uniproxy:ci --format '{{.Config.User}} {{.Config.ExposedPorts}}'
