@@ -41,6 +41,16 @@ GATEWAY_MAX_QUEUE_SIZE=96
 
 Credential and tenant data are stored under the current working directory's `data/` directory and protected by the gateway's encrypted storage configuration. Use a persistent volume in production. Do not commit environment files, database files, API keys, OAuth tokens, browser cookies, or session exports.
 
+## One-line public installation
+
+After the repository is made public, install on Linux, WSL, Termux, or NetHunter with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/UNKNOWN052409/proxy/complete-gateway/scripts/install.sh | bash
+```
+
+The script is pinned to a release commit, verifies the archive checksum, and does not contain credentials.
+
 ## Private cross-platform installation
 
 This repository is private by default. The authenticated installers download a pinned GitHub commit through the GitHub API, verify its SHA-256 archive checksum, install production dependencies, and create a local launcher. They never store or print the GitHub token.
