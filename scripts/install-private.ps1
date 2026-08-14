@@ -1,8 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
 $Repo = if ($env:UNIPROXY_REPO) { $env:UNIPROXY_REPO } else { 'UNKNOWN052409/proxy' }
-$Ref = if ($env:UNIPROXY_REF) { $env:UNIPROXY_REF } else { '76d217f4f57f6c775d22755b66084f4db458c9ec' }
-$ExpectedSha256 = if ($env:UNIPROXY_ARCHIVE_SHA256) { $env:UNIPROXY_ARCHIVE_SHA256 } else { 'f7af30bc033ada949c9ff720fd0ba7943bdc47bc4b5d30fb27539d0d41054d87' }
+$Ref = if ($env:UNIPROXY_REF) { $env:UNIPROXY_REF } else { 'd467983' }
+$ExpectedSha256 = if ($env:UNIPROXY_ARCHIVE_SHA256) { $env:UNIPROXY_ARCHIVE_SHA256 } else { '5e0f186a4ae20b890e97b0e9250c27114c6805a1ffc941abd8ab0229b1e072f4' }
 $InstallRoot = if ($env:UNIPROXY_INSTALL_ROOT) { $env:UNIPROXY_INSTALL_ROOT } else { Join-Path $HOME '.uniproxy' }
 $InstallDir = Join-Path $InstallRoot $Ref
 $TempRoot = Join-Path ([IO.Path]::GetTempPath()) ("npm-uniproxy-" + [guid]::NewGuid().ToString('N'))
