@@ -483,6 +483,14 @@ test("reliability queue manages concurrent requests without dropping them", asyn
   clearReliabilityState();
 });
 
+test("reliability configuration accepts only bounded integer overrides", () => {
+  assert.equal(reliability.boundedPositiveInteger("15000", 5000, { min: 1000, max: 120000 }), 15000);
+  assert.equal(reliability.boundedPositiveInteger("999", 5000, { min: 1000, max: 120000 }), 5000);
+  assert.equal(reliability.boundedPositiveInteger("200000", 5000, { min: 1000, max: 120000 }), 120000);
+  assert.equal(reliability.boundedPositiveInteger("not-a-number", 5000, { min: 0, max: 60000 }), 5000);
+  assert.equal(reliability.boundedPositiveInteger("0", 5000, { min: 0, max: 60000 }), 0);
+  assert.equal(getReliabilityStats().retryDelayMs, 5000);
+});
 
 test("CLI setup wizard emits provider-specific artifacts without secrets", () => {
   const openCode = buildSetup({ profileId: "opencode", baseUrl: "http://127.0.0.1:4096/v1", model: "local/model" });

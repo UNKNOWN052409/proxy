@@ -1,0 +1,83 @@
+{
+  "createdAt": "2026-08-14T06:48:37.125Z",
+  "target": {
+    "surface": "standalone /v1/chat/completions",
+    "upstream": "authorized OpenAI-compatible endpoint",
+    "modelConfigured": true
+  },
+  "stages": [
+    {
+      "requestedRpm": 10,
+      "durationSeconds": 60,
+      "requestCount": 10,
+      "successfulOpenAiResponses": 10,
+      "successRate": 100,
+      "statusCounts": {
+        "200": 10
+      },
+      "errorTypeCounts": {},
+      "latencyMs": {
+        "min": 3515.9,
+        "p50": 13349.8,
+        "p95": 14166.5,
+        "max": 14166.5
+      }
+    },
+    {
+      "requestedRpm": 100,
+      "durationSeconds": 60,
+      "requestCount": 100,
+      "successfulOpenAiResponses": 38,
+      "successRate": 38,
+      "statusCounts": {
+        "200": 38,
+        "429": 4,
+        "504": 58
+      },
+      "errorTypeCounts": {
+        "upstream_timeout": 58,
+        "upstream_error": 4
+      },
+      "latencyMs": {
+        "min": 3195.9,
+        "p50": 29993.7,
+        "p95": 52378.8,
+        "max": 53707.4
+      }
+    },
+    {
+      "requestedRpm": 500,
+      "durationSeconds": 60,
+      "requestCount": 500,
+      "successfulOpenAiResponses": 137,
+      "successRate": 27.4,
+      "statusCounts": {
+        "200": 137,
+        "429": 18,
+        "503": 314,
+        "504": 31
+      },
+      "errorTypeCounts": {
+        "queue_overloaded": 314,
+        "upstream_timeout": 31,
+        "upstream_error": 18
+      },
+      "latencyMs": {
+        "min": 3.1,
+        "p50": 4.3,
+        "p95": 81155.3,
+        "max": 88698.1
+      }
+    }
+  ],
+  "gatewayRssMiB": {
+    "samples": 1277,
+    "peak": 84.85,
+    "p50": 79.38
+  },
+  "notes": [
+    "No credential, endpoint URL, gateway API key, request prompts, or upstream response text is written to this report.",
+    "A non-2xx result is reported as upstream/gateway evidence, not silently counted as success.",
+    "This benchmark uses an isolated temporary HOME and removes all generated gateway state when it exits."
+  ]
+}

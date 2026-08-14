@@ -1,0 +1,86 @@
+{
+  "createdAt": "2026-08-14T06:56:19.694Z",
+  "target": {
+    "surface": "standalone /v1/chat/completions",
+    "upstream": "authorized OpenAI-compatible endpoint",
+    "modelConfigured": true
+  },
+  "stages": [
+    {
+      "requestedRpm": 10,
+      "durationSeconds": 60,
+      "requestCount": 10,
+      "successfulOpenAiResponses": 4,
+      "successRate": 40,
+      "statusCounts": {
+        "200": 4,
+        "504": 6
+      },
+      "errorTypeCounts": {
+        "upstream_timeout": 6
+      },
+      "latencyMs": {
+        "min": 3112.5,
+        "p50": 15007.6,
+        "p95": 15021.5,
+        "max": 15021.5
+      }
+    },
+    {
+      "requestedRpm": 100,
+      "durationSeconds": 60,
+      "requestCount": 100,
+      "successfulOpenAiResponses": 77,
+      "successRate": 77,
+      "statusCounts": {
+        "200": 77,
+        "429": 1,
+        "504": 22
+      },
+      "errorTypeCounts": {
+        "upstream_timeout": 22,
+        "upstream_error": 1
+      },
+      "latencyMs": {
+        "min": 4046.7,
+        "p50": 12419.7,
+        "p95": 21283.1,
+        "max": 22633.3
+      }
+    },
+    {
+      "requestedRpm": 500,
+      "durationSeconds": 60,
+      "requestCount": 500,
+      "successfulOpenAiResponses": 161,
+      "successRate": 32.2,
+      "statusCounts": {
+        "200": 161,
+        "429": 16,
+        "503": 293,
+        "504": 30
+      },
+      "errorTypeCounts": {
+        "queue_overloaded": 293,
+        "upstream_timeout": 30,
+        "upstream_error": 16
+      },
+      "latencyMs": {
+        "min": 3.1,
+        "p50": 4.1,
+        "p95": 69309.9,
+        "max": 77266.1
+      }
+    }
+  ],
+  "gatewayRssMiB": {
+    "samples": 1055,
+    "peak": 84.65,
+    "p50": 78.09
+  },
+  "notes": [
+    "No credential, endpoint URL, gateway API key, request prompts, or upstream response text is written to this report.",
+    "A non-2xx result is reported as upstream/gateway evidence, not silently counted as success.",
+    "This benchmark uses an isolated temporary HOME and removes all generated gateway state when it exits."
+  ]
+}

@@ -1,9 +1,17 @@
 import RequestQueue from "../queue/request-queue.js";
 import { gatewayError } from "./openai.js";
 
-const DEFAULT_TIMEOUT_MS = 5_000;
-const DEFAULT_RETRY_DELAY_MS = 5_000;
-const DEFAULT_MAX_RETRIES = 1;
+function boundedPositiveInteger(value, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min) return fallback;
+  return Math.min(parsed, max);
+}
+
+// The retry wait remains five seconds. The first-attempt deadline is longer because
+// legitimate authorized models can take longer than five seconds to return a small reply.
+const DEFAULT_TIMEOUT_MS = boundedPositiveInteger(process.env.GATEWAY_UPSTREAM_TIMEOUT_MS, 15_000, { min: 1_000, max: 120_000 });
+const DEFAULT_RETRY_DELAY_MS = boundedPositiveInteger(process.env.GATEWAY_RETRY_DELAY_MS, 5_000, { min: 0, max: 60_000 });
+const DEFAULT_MAX_RETRIES = boundedPositiveInteger(process.env.GATEWAY_MAX_RETRIES, 1, { min: 0, max: 3 });
 const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;
 const MAX_IDEMPOTENCY_ENTRIES = 2_000;
 
@@ -83,4 +91,4 @@ export function getReliabilityStats() {
   };
 }
 export function clearReliabilityState() { idempotency.clear(); queue.clear(gatewayError("Reliability queue cleared", 503, "queue_cleared")); }
-export const __testables = { isRetryable, executeWithTimeout, pruneIdempotency, queue, idempotency };
+export const __testables = { isRetryable, executeWithTimeout, pruneIdempotency, boundedPositiveInteger, queue, idempotency };
