@@ -1,10 +1,10 @@
 /**
- * Middleware — protect dashboard routes behind auth check
+ * Proxy — protect dashboard routes behind auth check
  * Edge runtime compatible (no fs/path)
  */
 import { NextResponse } from "next/server";
 
-export function middleware(request) {
+export function proxy(request) {
   const { pathname } = request.nextUrl;
 
   // Only protect dashboard routes
