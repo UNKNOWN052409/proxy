@@ -1,0 +1,185 @@
+[
+  {
+    "test_id": "MOD-01",
+    "feature": "model registry",
+    "expected": "OpenAI model list",
+    "actual": "HTTP 401",
+    "status": "BLOCKED",
+    "http_status": 401,
+    "latency_ms": 2707.1,
+    "evidence": {
+      "content_type": "text/html",
+      "error_shape": "False",
+      "preview": "<html>\r\n<head><title>401 Authorization Required</title></head>\r\n<body>\r\n<center><h1>401 Authorization Required</h1></center>\r\n<hr><center>nginx/1.24.0 (Ubuntu)</center>\r\n</body>\r\n</html>\r\n"
+    },
+    "severity": "High"
+  },
+  {
+    "test_id": "AUTH-02",
+    "feature": "authentication",
+    "expected": "invalid key rejected cleanly",
+    "actual": "HTTP 401",
+    "status": "PASS",
+    "http_status": 401,
+    "latency_ms": 2672.2,
+    "evidence": {
+      "content_type": "text/html",
+      "preview": "<html>\r\n<head><title>401 Authorization Required</title></head>\r\n<body>\r\n<center><h1>401 Authorization Required</h1></center>\r\n<hr><center>nginx/1.24.0 (Ubuntu)</center>\r\n</body>\r\n</html>\r\n"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "AUTH-03",
+    "feature": "authentication",
+    "expected": "supplied key accepted or cleanly rejected",
+    "actual": "HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 4074.8,
+    "evidence": {
+      "content_type": "application/json; charset=utf-8",
+      "json_shape": "True",
+      "model_count": "15",
+      "model_ids": [
+        "claude-fable-5",
+        "claude-fable-5[1m]",
+        "claude-opus-4-8",
+        "claude-opus-4-8[1m]",
+        "claude-opus-5",
+        "claude-opus-5[1m]",
+        "claude-sonnet-5",
+        "claude-sonnet-5[1m]",
+        "gemini-3-pro-image",
+        "gemini-3.1-flash-image",
+        "gemini-3.1-flash-lite-image",
+        "glm-5.2",
+        "gpt-5.6",
+        "gpt-5.6-sol",
+        "kimi-k3"
+      ]
+    },
+    "severity": "Low"
+  },
+  {
+    "test_id": "CHAT-01",
+    "feature": "basic chat",
+    "expected": "OpenAI completion JSON",
+    "actual": "gpt-5.6-sol: HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 6902.5,
+    "evidence": {
+      "model": "gpt-5.6-sol",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "id",
+        "object",
+        "created",
+        "model",
+        "choices",
+        "usage"
+      ],
+      "choice_count": "1",
+      "preview": "{\n  \"id\": \"chatcmpl-a345cd78-6e71-447e-bfa4-58c443680f08\",\n  \"object\": \"chat.completion\",\n  \"created\": 1786688605,\n  \"model\": \"gpt-5.6-sol\",\n  \"choices\": [\n    {\n      \"index\": 0,\n      \"message\": {\n "
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "ERR-02",
+    "feature": "error handling",
+    "expected": "malformed JSON returns clean error",
+    "actual": "HTTP 500",
+    "status": "FAIL",
+    "http_status": 500,
+    "latency_ms": 3313.8,
+    "evidence": {
+      "content_type": "application/json; charset=utf-8",
+      "preview": "{\"error\":\"Internal server error\"}"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "ERR-03",
+    "feature": "error handling",
+    "expected": "invalid model returns clean error",
+    "actual": "HTTP 404",
+    "status": "PASS",
+    "http_status": 404,
+    "latency_ms": 3028.0,
+    "evidence": {
+      "content_type": "application/json; charset=utf-8",
+      "preview": "{\"error\":{\"message\":\"Unknown model: __invalid_model__\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"model_not_found\"}}"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "STREAM-01",
+    "feature": "streaming",
+    "expected": "SSE or clean unsupported error",
+    "actual": "HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 7905.2,
+    "evidence": {
+      "model": "gpt-5.6-sol",
+      "content_type": "text/event-stream; charset=utf-8",
+      "sse_prefix": "data: {\"id\":\"chatcmpl-9d4b81f5-3113-4030-a172-9ca418a47f9f\",\"object\":\"chat.completion.chunk\",\"created\":1786688617,\"model\":\"gpt-5.6-sol\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reaso"
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "JSON-01",
+    "feature": "structured output",
+    "expected": "valid JSON mode or clean unsupported error",
+    "actual": "HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 6538.8,
+    "evidence": {
+      "model": "gpt-5.6-sol",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "id",
+        "object",
+        "created",
+        "model",
+        "choices",
+        "usage"
+      ]
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "TOOL-01",
+    "feature": "tools",
+    "expected": "tool call or clean unsupported error",
+    "actual": "HTTP 200",
+    "status": "PASS",
+    "http_status": 200,
+    "latency_ms": 8616.5,
+    "evidence": {
+      "model": "gpt-5.6-sol",
+      "content_type": "application/json; charset=utf-8",
+      "response_keys": [
+        "id",
+        "object",
+        "created",
+        "model",
+        "choices",
+        "usage"
+      ]
+    },
+    "severity": "Medium"
+  },
+  {
+    "test_id": "CONC-01",
+    "feature": "bounded concurrency",
+    "expected": "five requests only after approval",
+    "actual": "not run; explicit approval flag absent",
+    "status": "BLOCKED",
+    "http_status": null,
+    "latency_ms": 0.0,
+    "evidence": {},
+    "severity": "Low"
+  }
+]

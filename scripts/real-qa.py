@@ -17,6 +17,11 @@ MODEL = os.environ.get("PROXY_MODEL_ID", "")
 OUT = Path(os.environ.get("QA_OUTPUT", "docs/real-qa-report.json"))
 TIMEOUT = float(os.environ.get("QA_TIMEOUT_SECONDS", "8"))
 RUN_CONCURRENCY = os.environ.get("QA_APPROVE_CONCURRENCY", "false").lower() == "true"
+try:
+    MODEL_LIMIT = max(0, int(os.environ.get("QA_MODEL_LIMIT", "0")))
+except ValueError:
+    MODEL_LIMIT = 0
+MODEL_FILTER = {item.strip() for item in os.environ.get("QA_MODEL_IDS", "").split(",") if item.strip()}
 
 if not BASE:
     raise SystemExit("PROXY_BASE_URL is required")
@@ -121,6 +126,9 @@ def main():
 
     if not models and MODEL:
         models = [MODEL]
+    models_to_test = [model for model in models if not MODEL_FILTER or model in MODEL_FILTER]
+    if MODEL_LIMIT:
+        models_to_test = models_to_test[:MODEL_LIMIT]
 
     def test_model(model: str):
         body = {"model": model, "messages": [{"role": "user", "content": "Reply with exactly: gateway-test-ok"}], "max_tokens": 10, "temperature": 0}
@@ -131,7 +139,7 @@ def main():
         shape = isinstance(data, dict) and isinstance(data.get("choices"), list)
         return record("CHAT-01", "basic chat", "OpenAI completion JSON", f"{model}: HTTP {response.status_code}", "PASS" if response.ok and shape else ("BLOCKED" if response.status_code in {401, 403, 404, 408, 429, 500, 502, 503, 504} else "FAIL"), started, response.status_code, {"model": model, "content_type": ctype, "response_keys": list(data.keys())[:20] if isinstance(data, dict) else [], "choice_count": len(data.get("choices", [])) if isinstance(data, dict) else None, "preview": text[:200]}, "High" if response.status_code >= 500 else "Medium")
 
-    for model in models[:10]:
+    for model in models_to_test:
         results.append(test_model(model))
 
     # Bounded negative and streaming checks from the QA matrix.
@@ -143,8 +151,8 @@ def main():
     response, elapsed, ctype, data, text, error = request("POST", "/chat/completions", {"model": "__invalid_model__", "messages": [{"role": "user", "content": "test"}], "max_tokens": 1}, key=KEY or None)
     results.append(record("ERR-03", "error handling", "invalid model returns clean error", f"transport error: {error}" if response is None else f"HTTP {response.status_code}", "BLOCKED" if response is None else ("PASS" if response.status_code in {400, 401, 403, 404, 422} else "FAIL"), started, None if response is None else response.status_code, {"content_type": ctype, "preview": text[:200]}, "Medium"))
 
-    if models:
-        model = models[0]
+    if models_to_test:
+        model = models_to_test[0]
         body = {"model": model, "messages": [{"role": "user", "content": "Reply with one short word."}], "max_tokens": 4, "temperature": 0, "stream": True}
         started = time.monotonic()
         response, elapsed, ctype, data, text, error = request("POST", "/chat/completions", body, key=KEY or None, stream=True)
@@ -155,8 +163,8 @@ def main():
             is_sse = "text/event-stream" in ctype or "data:" in prefix
             results.append(record("STREAM-01", "streaming", "SSE or clean unsupported error", f"HTTP {response.status_code}", "PASS" if response.ok and is_sse else "BLOCKED" if response.status_code in {400, 401, 403, 404, 408, 429, 500, 502, 503, 504} else "FAIL", started, response.status_code, {"model": model, "content_type": ctype, "sse_prefix": prefix[:200]}, "Medium"))
 
-    if models:
-        model = models[0]
+    if models_to_test:
+        model = models_to_test[0]
         body = {"model": model, "messages": [{"role": "user", "content": "Reply with one JSON object containing ok=true."}], "max_tokens": 20, "temperature": 0, "response_format": {"type": "json_object"}}
         started = time.monotonic()
         response, elapsed, ctype, data, text, error = request("POST", "/chat/completions", body, key=KEY or None)
@@ -180,7 +188,7 @@ def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(payload + "\n", encoding="utf-8")
     totals = {s: sum(1 for r in results if r["status"] == s) for s in ["PASS", "FAIL", "BLOCKED", "UNVERIFIED"]}
-    print(json.dumps({"base_url": BASE, "model_hint": MODEL, "model_count": len(models), "totals": totals, "report": str(OUT)}, indent=2))
+    print(json.dumps({"base_url": BASE, "model_hint": MODEL, "model_count": len(models), "probed_model_count": len(models_to_test), "model_limit": MODEL_LIMIT or "all", "model_filter": sorted(MODEL_FILTER), "totals": totals, "report": str(OUT)}, indent=2))
 
 
 if __name__ == "__main__":
