@@ -11,6 +11,7 @@ from typing import Any
 import requests
 
 BASE = os.environ.get("PROXY_BASE_URL", "").rstrip("/")
+API_PREFIX = "" if BASE.endswith("/v1") else "/v1"
 KEY = os.environ.get("PROXY_API_KEY", "")
 MODEL = os.environ.get("PROXY_MODEL_ID", "")
 OUT = Path(os.environ.get("QA_OUTPUT", "docs/real-qa-report.json"))
@@ -55,7 +56,7 @@ def raw_request(method: str, path: str, raw: str, key: str | None = None):
         headers["Authorization"] = f"Bearer {key}"
     started = time.monotonic()
     try:
-        response = requests.request(method, BASE + path, headers=headers, data=raw, timeout=TIMEOUT)
+        response = requests.request(method, BASE + API_PREFIX + path, headers=headers, data=raw, timeout=TIMEOUT)
         content_type = response.headers.get("content-type", "")
         text = response.text[:1000]
         parsed = None
@@ -75,7 +76,7 @@ def request(method: str, path: str, body=None, key: str | None = None, stream=Fa
         headers["Authorization"] = f"Bearer {key}"
     started = time.monotonic()
     try:
-        response = requests.request(method, BASE + path, headers=headers, json=body, timeout=TIMEOUT, stream=stream)
+        response = requests.request(method, BASE + API_PREFIX + path, headers=headers, json=body, timeout=TIMEOUT, stream=stream)
         elapsed = round((time.monotonic() - started) * 1000, 1)
         content_type = response.headers.get("content-type", "")
         text = response.text[:1000] if not stream else ""

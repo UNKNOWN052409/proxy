@@ -42,9 +42,12 @@ async function postJson(url, options, timeoutMs = Number(process.env.GATEWAY_UPS
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = null; }
     if (!response.ok) {
+      const surfacedStatus = [400, 401, 403, 404, 408, 409, 413, 422, 429].includes(response.status)
+        ? response.status
+        : 502;
       throw gatewayError(
         data?.error?.message || `Upstream provider returned HTTP ${response.status}`,
-        response.status >= 400 && response.status < 500 ? 400 : 502,
+        surfacedStatus,
         "upstream_error",
         data?.error?.code || null,
       );
@@ -162,4 +165,4 @@ export async function executeOpenAiImage({ provider, apiKey, body, model }) {
   })).filter((item) => item.url || item.b64_json) };
 }
 
-export const __testables = { buildPayload, safeConfiguredHeaders };
+export const __testables = { buildPayload, safeConfiguredHeaders, postJson };

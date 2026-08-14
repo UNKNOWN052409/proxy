@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getGatewayProviders, getGatewayStatus } from "@/lib/gateway/config";
 import { getGatewayRuntimeState, importProviderModels, mergeProviderConfiguration, restoreGatewayRuntimeState, setProviderEnabled } from "@/lib/gateway/runtime-store";
-import { importEncryptedCredentials, listCredentialMetadata, getCredentialForVerification, recordCredentialVerification, markCredentialResult } from "@/lib/gateway/credentials";
-import { auditProviderEndpoint } from "@/lib/gateway/audit";
+import { importEncryptedCredentials, listCredentialMetadata } from "@/lib/gateway/credentials";
+import { verifyStoredCredential } from "@/lib/gateway/credential-verification";
 import { detectCustomEndpoint, testPromptTemplate } from "@/lib/gateway/custom-endpoint";
 import { normalizeOpenCodeImport, describeOpenCodeImport } from "@/lib/gateway/opencode-import";
 
@@ -150,43 +150,5 @@ export async function POST(request) {
 }
 
 async function verifyCredentialSet(provider, credentialIds, options = {}) {
-  const results = [];
-  const model = String(options.model || provider.defaultModel || provider.models?.[0]?.id || provider.models?.[0] || "").trim() || undefined;
-  const probeCount = Math.max(1, Math.min(5, Number(options.probeCount || 2)));
-  const contextSizes = Array.isArray(options.contextSizes) ? options.contextSizes.slice(0, 3) : [];
-  for (const credentialId of credentialIds) {
-    const started = Date.now();
-    let summary;
-    try {
-      const credential = getCredentialForVerification(provider.id, credentialId);
-      if (!credential) throw new Error("Credential not found");
-      if (credential.expired) throw new Error("Credential is expired");
-      const audit = await auditProviderEndpoint({ provider, apiKey: credential.apiKey, model, probeCount, contextSizes });
-      const status = audit.authenticity?.status === "quarantined" ? "quarantined" : audit.error ? "failed" : "verified";
-      if (audit.modelResponse?.status) markCredentialResult(provider.id, credentialId, audit.modelResponse.ok, audit.modelResponse.status);
-      summary = {
-        credentialId,
-        status,
-        checkedAt: audit.checkedAt,
-        model: audit.advertisedModel,
-        authenticityScore: audit.authenticity?.score ?? null,
-        authenticityStatus: audit.authenticity?.status || null,
-        ttftMs: audit.authenticity?.ttftMs ?? null,
-        modelListStatus: audit.modelListStatus,
-        probeStatus: audit.probeStatus,
-        canaryFailures: audit.authenticity?.failedCanaries ?? null,
-        contextFailures: audit.authenticity?.failedContexts ?? null,
-        leakage: audit.leakage?.findings || [],
-        identityVerdict: audit.identity?.verdict || null,
-        durationMs: Date.now() - started,
-        error: audit.error || null,
-      };
-    } catch (cause) {
-      summary = { credentialId, status: "failed", checkedAt: new Date().toISOString(), model: model || null, authenticityScore: 0, authenticityStatus: "failed", ttftMs: null, durationMs: Date.now() - started, error: cause instanceof Error ? cause.message : "Verification failed" };
-      markCredentialResult(provider.id, credentialId, false, null);
-    }
-    recordCredentialVerification(provider.id, credentialId, summary);
-    results.push(summary);
-  }
-  return results;
+  return Promise.all(credentialIds.map((credentialId) => verifyStoredCredential(provider, credentialId, options)));
 }

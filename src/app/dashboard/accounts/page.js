@@ -73,7 +73,7 @@ export default function AccountsPage() {
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-text-main">Accounts</h1>
-          <p className="text-text-muted text-sm mt-1">Manage your Kiro credentials</p>
+          <p className="text-text-muted text-sm mt-1">Manage encrypted official OAuth tokens and API credentials for configured providers</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Export */}
@@ -83,7 +83,7 @@ export default function AccountsPage() {
               onChange={(e) => setExportFormat(e.target.value)}
               className="h-9 rounded-lg bg-surface border border-border text-text-muted text-xs px-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
             >
-              <option value="default">Kiro Proxy Format</option>
+              <option value="default">Encrypted Provider Account Format</option>
               <option value="9router">9Router Format</option>
               <option value="kiro-ide">Kiro IDE Format</option>
             </select>
@@ -119,8 +119,8 @@ export default function AccountsPage() {
             </div>
             <h3 className="text-lg font-semibold text-text-main mb-2">No Accounts</h3>
             <p className="text-text-muted text-sm mb-6 max-w-md mx-auto">
-              Import accounts from 9Router, Kiro IDE, or paste credentials manually.
-              Multiple imports accumulate — your existing accounts are never lost.
+              Import explicit official OAuth tokens or API credentials for configured providers.
+              Multiple encrypted imports accumulate — browser sessions, cookies, and passwords are not accepted.
             </p>
             <a href="/dashboard/import">
               <Button variant="primary" icon="file_download">Import Your First Account</Button>
@@ -202,8 +202,22 @@ export default function AccountsPage() {
                               ({testResults[acct.id].latency}ms)
                             </span>
                           )}
+                          {testResults[acct.id].details?.model && (
+                            <span className="text-text-subtle ml-1">· {testResults[acct.id].details.model}</span>
+                          )}
                         </span>
                       </div>
+                    )}
+                    {testResults[acct.id]?.details?.routing && (
+                      <p className={`text-[10px] mt-1 ${testResults[acct.id].details.routing.routingEligible ? "text-emerald-400" : "text-amber-400"}`}>
+                        Routing: {testResults[acct.id].details.routing.routingEligible ? "eligible" : "blocked"}
+                        {testResults[acct.id].details.routing.routingReason ? ` · ${testResults[acct.id].details.routing.routingReason}` : ""}
+                      </p>
+                    )}
+                    {acct.lastVerification?.checkedAt && !testResults[acct.id] && (
+                      <p className="text-[10px] text-text-subtle mt-1">
+                        Last test: {acct.lastVerification.status || "unknown"} · {new Date(acct.lastVerification.checkedAt).toLocaleString()}
+                      </p>
                     )}
                   </div>
                 </div>
