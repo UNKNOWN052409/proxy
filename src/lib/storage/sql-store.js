@@ -4,8 +4,8 @@ import { dirname, join } from "path";
 import crypto from "crypto";
 import { homedir } from "os";
 
-const DATA_DIR = process.env.GATEWAY_DATA_DIR || join(homedir(), ".kiro-proxy");
-const DB_PATH = process.env.GATEWAY_SQLITE_PATH || join(DATA_DIR, "gateway.db");
+const DATA_DIR = process.env.GATEWAY_DATA_DIR || join(/* turbopackIgnore: true */ homedir(), ".kiro-proxy");
+const DB_PATH = process.env.GATEWAY_SQLITE_PATH || join(/* turbopackIgnore: true */ DATA_DIR, "gateway.db");
 
 function ensureParent() {
   const parent = dirname(DB_PATH);

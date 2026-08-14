@@ -20,14 +20,14 @@
   },
   "scripts": {
     "dev": "node src/start-next.js dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "node src/start-next.js start",
     "gateway": "node src/gateway-server.js",
     "gateway:refresh-models": "node src/jobs/refresh-gateway-models.js",
-    "test": "node --test --test-concurrency=1 tests/**/*.test.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js",
     "test:gateway": "node --test tests/gateway.test.js",
     "coverage": "node --test --experimental-test-coverage tests/gateway.test.js",
-    "coverage:all": "node --test --test-concurrency=1 --experimental-test-coverage tests/**/*.test.js",
+    "coverage:all": "node --test --test-concurrency=1 --experimental-test-coverage tests/*.test.js",
     "coverage:model-import": "node --test --experimental-test-coverage --test-name-pattern=\"model catalog import|model refresh parser\" tests/gateway.test.js"
   },
   "dependencies": {

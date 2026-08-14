@@ -11,7 +11,7 @@ import * as cloudflareTunnel from "@/lib/tunnel/manager";
 function findNgrok() {
   const isWin = platform() === "win32";
   const defaultPath = isWin
-    ? path.join(process.env.LOCALAPPDATA || process.env.USERPROFILE || "C:\\", "Ngrok", "ngrok.exe")
+    ? path.join(/* turbopackIgnore: true */ (process.env.LOCALAPPDATA || process.env.USERPROFILE || "C:\\"), "Ngrok", "ngrok.exe")
     : "ngrok";
   try {
     const which = isWin ? "where" : "which";

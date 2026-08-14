@@ -7,8 +7,8 @@ import path from "path";
 import { createHash } from "crypto";
 import { sqlStore } from "../storage/sql-store.js";
 
-const DATA_DIR = path.join(process.env.HOME || process.env.USERPROFILE || "~", ".kiro-proxy");
-const CONFIG_FILE = path.join(DATA_DIR, "config.json");
+const DATA_DIR = path.join(/* turbopackIgnore: true */ (process.env.HOME || process.env.USERPROFILE || "~"), ".kiro-proxy");
+const CONFIG_FILE = path.join(/* turbopackIgnore: true */ DATA_DIR, "config.json");
 const NAMESPACE = "config";
 
 const DEFAULTS = {
