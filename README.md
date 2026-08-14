@@ -41,6 +41,35 @@ GATEWAY_MAX_QUEUE_SIZE=96
 
 Credential and tenant data are stored under the current working directory's `data/` directory and protected by the gateway's encrypted storage configuration. Use a persistent volume in production. Do not commit environment files, database files, API keys, OAuth tokens, browser cookies, or session exports.
 
+## Private cross-platform installation
+
+This repository is private by default. The authenticated installers download a pinned GitHub commit through the GitHub API, verify its SHA-256 archive checksum, install production dependencies, and create a local launcher. They never store or print the GitHub token.
+
+On Linux, Termux, or NetHunter, create the token only in the current shell and run the installer from a trusted checkout or internal artifact location:
+
+```bash
+export GITHUB_TOKEN='your-token-in-the-current-shell-only'
+bash scripts/install-private.sh
+unset GITHUB_TOKEN
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:GITHUB_TOKEN = 'your-token-in-the-current-session-only'
+& .\\scripts\\install-private.ps1
+Remove-Item Env:GITHUB_TOKEN
+```
+
+For Docker, build from an authenticated local checkout; the token is not passed into the image:
+
+```bash
+docker build -t npm-uniproxy:private .
+docker run --rm -p 2018:2018 --env-file .env npm-uniproxy:private
+```
+
+The same installers work in ordinary Linux, WSL, Termux, and NetHunter as long as Node.js 20+, npm, curl, tar, and a writable home directory are available. Private npm publication is not required for these paths.
+
 ## Dashboard and deployment
 
 The full dashboard can be run from a checked-out project copy with `npm run dev` or `npm run build && npm start`. For public deployment, use an HTTPS reverse proxy or a named tunnel that forwards to the loopback gateway. See [`docs/GATEWAY.md`](docs/GATEWAY.md) and [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
