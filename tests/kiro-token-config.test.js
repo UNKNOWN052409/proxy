@@ -32,7 +32,15 @@ test("Kiro status never exposes the token value", () => {
   assert.equal(directoryEntry.availabilityNote, kiro.availabilityNote);
   assert.deepEqual(directoryEntry.authModes, ["bearer-token", "api-key"]);
   assert.deepEqual(directoryEntry.discoveredModels, ["kiro-model-a", "kiro-model-b"]);
-  assert.deepEqual(directoryEntry.credentialPool, { count: 0, disabled: 0, ready: 0, expired: 0 });
+  assert.equal(directoryEntry.credentialPool.count, 0);
+  assert.equal(directoryEntry.credentialPool.ready, 0);
+  assert.equal(directoryEntry.credentialPool.authRejected, 0);
+  assert.equal(directoryEntry.credentialPool.quarantined, 0);
+  assert.equal(directoryEntry.operations.active, true);
+  assert.equal(directoryEntry.operations.routingEligible, true);
+  assert.equal(directoryEntry.operations.routingStatus, "eligible");
+  assert.equal(directoryEntry.operations.accounts.total, 0);
+  assert.equal(directoryEntry.operations.quotaTelemetry.status, "not_available");
   assert.equal(JSON.stringify(directoryEntry).includes("test-token-only"), false);
   assert.equal(directoryEntry.oauthAuthUrl, undefined);
 });

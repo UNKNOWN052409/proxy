@@ -319,6 +319,50 @@ function isProviderExpired(provider) {
   return Boolean(provider.expiresAt && Date.parse(provider.expiresAt) <= Date.now());
 }
 
+function providerOperations(provider, { configured = false, credentialPool = null, quarantined = false } = {}) {
+  const pool = credentialPool || provider.credentialPool || getCredentialPoolStatus(provider.id);
+  const expired = isProviderExpired(provider);
+  const environmentCredential = provider.type === "bedrock"
+    ? Boolean(provider.region && process.env[provider.accessKeyEnv] && process.env[provider.secretKeyEnv])
+    : Boolean(provider.apiKeyEnv && process.env[provider.apiKeyEnv]);
+  const localNoAuth = provider.allowNoAuth === true || provider.localOnly === true;
+  let routingStatus = "eligible";
+  let routingReason = "Provider can be selected for eligible model routes.";
+  if (provider.enabled === false) {
+    routingStatus = "disabled";
+    routingReason = "Administrator disabled this provider.";
+  } else if (expired) {
+    routingStatus = "expired";
+    routingReason = "The provider activation window has expired.";
+  } else if (quarantined) {
+    routingStatus = "quarantined";
+    routingReason = "Provider is quarantined after an authenticity or health review.";
+  } else if (!configured && !environmentCredential && !pool.ready && !localNoAuth) {
+    routingStatus = "not_configured";
+    routingReason = "No usable authorized credential or workload identity is configured.";
+  } else if (!environmentCredential && !pool.ready && !localNoAuth) {
+    routingStatus = "credential_blocked";
+    routingReason = "All imported credentials are disabled, expired, rejected, rate-limited, or quarantined.";
+  }
+  return {
+    active: provider.enabled !== false,
+    routingStatus,
+    routingEligible: routingStatus === "eligible",
+    routingReason,
+    accounts: {
+      total: pool.count || 0,
+      ready: pool.ready || 0,
+      disabled: pool.disabled || 0,
+      expired: pool.expired || 0,
+      quarantined: pool.quarantined || 0,
+      authRejected: pool.authRejected || 0,
+      rateLimited: pool.rateLimited || 0,
+      coolingDown: pool.coolingDown || 0,
+    },
+    quotaTelemetry: pool.quotaTelemetry || { status: "not_available", source: null, note: "No official quota telemetry is configured." },
+  };
+}
+
 export function getGatewayProviders() {
   const providers = readConfiguredProviders();
   const ids = new Set();
@@ -335,21 +379,27 @@ export function getGatewayStatus() {
   const runtime = getGatewayRuntimeState();
   try { providers = getGatewayProviders(); } catch (error) { configurationError = error.message; }
   return {
-    enabled: providers.some((provider) => provider.enabled && !isProviderExpired(provider)) && !configurationError,
+    enabled: providers.some((provider) => provider.enabled && !isProviderExpired(provider) && !isProviderQuarantined(provider.id) && hasRoutableCredential(provider)) && !configurationError,
     configurationError,
-    providers: providers.map(({ apiKeyEnv, headers, ...provider }) => ({
-      ...provider,
-      configured: provider.type === "bedrock"
+    providers: providers.map(({ apiKeyEnv, headers, ...provider }) => {
+      const configured = provider.type === "bedrock"
         ? Boolean(provider.region && process.env[provider.accessKeyEnv] && process.env[provider.secretKeyEnv])
-        : Boolean((apiKeyEnv && process.env[apiKeyEnv]) || provider.credentialPool?.ready),
-      credentialPool: provider.credentialPool,
-      expired: isProviderExpired(provider),
-      health: runtime.health[provider.id] || { status: "unknown", checkedAt: null },
-      lastModelRefresh: runtime.modelCatalog[provider.id]?.refreshedAt || null,
-      catalogModelCount: runtime.modelCatalog[provider.id]?.models?.length || 0,
-      audit: runtime.audits[provider.id] || null,
-      quarantined: isProviderQuarantined(provider.id),
-    })),
+        : Boolean((apiKeyEnv && process.env[apiKeyEnv]) || provider.credentialPool?.ready || provider.allowNoAuth);
+      const quarantined = isProviderQuarantined(provider.id);
+      const credentialPool = provider.credentialPool;
+      return {
+        ...provider,
+        configured,
+        credentialPool,
+        expired: isProviderExpired(provider),
+        health: runtime.health[provider.id] || { status: "unknown", checkedAt: null },
+        lastModelRefresh: runtime.modelCatalog[provider.id]?.refreshedAt || null,
+        catalogModelCount: runtime.modelCatalog[provider.id]?.models?.length || 0,
+        audit: runtime.audits[provider.id] || null,
+        quarantined,
+        operations: providerOperations({ ...provider, apiKeyEnv }, { configured, credentialPool, quarantined }),
+      };
+    }),
     notifications: getGatewayNotifications(),
     lastRefreshAt: runtime.lastRefreshAt,
     supportedProviders: listDedicatedProviderProfiles().map(({ apiKeyEnv, ...profile }) => {
@@ -360,11 +410,13 @@ export function getGatewayStatus() {
         ? true
         : Boolean((apiKeyEnv && process.env[apiKeyEnv]) || credentialPool.ready || (profile.oauthClientIdEnv && process.env[profile.oauthClientIdEnv]));
       const status = configured ? "available" : "unavailable";
+      const operations = providerOperations({ ...profile, ...configuredProvider, apiKeyEnv: configuredProvider?.apiKeyEnv || apiKeyEnv, enabled: configuredProvider?.enabled ?? true }, { configured, credentialPool, quarantined: configuredProvider ? isProviderQuarantined(profile.id) : false });
       return {
         ...profile,
         credentialPool,
         discoveredModels,
         configured,
+        operations,
         status,
         availabilityReason: configured
           ? (profile.localOnly ? "Local endpoint can be tested on this host" : "Credential or runtime configuration detected")
@@ -388,8 +440,15 @@ export function getGatewayStatus() {
   };
 }
 
+function hasRoutableCredential(provider) {
+  if (provider.allowNoAuth === true) return true;
+  if (provider.type === "bedrock") return Boolean(provider.region && process.env[provider.accessKeyEnv] && process.env[provider.secretKeyEnv]);
+  if (provider.apiKeyEnv && process.env[provider.apiKeyEnv]) return true;
+  return getCredentialPoolStatus(provider.id).ready > 0;
+}
+
 function enabledProviders() {
-  return getGatewayProviders().filter((provider) => provider.enabled && !provider.oauthOnly && !isProviderExpired(provider) && !isProviderQuarantined(provider.id));
+  return getGatewayProviders().filter((provider) => provider.enabled && !provider.oauthOnly && !isProviderExpired(provider) && !isProviderQuarantined(provider.id) && hasRoutableCredential(provider));
 }
 
 export function resolveProvider(model) {
@@ -455,4 +514,4 @@ export function getProviderConfiguration(providerId) {
   return getProviderSettings(providerId);
 }
 
-export const __testables = { normalizeProvider, normalizeBaseUrl, splitModels, normalizeExpiry, isProviderExpired };
+export const __testables = { normalizeProvider, normalizeBaseUrl, splitModels, normalizeExpiry, isProviderExpired, providerOperations };

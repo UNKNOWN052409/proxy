@@ -98,7 +98,7 @@ export function importEncryptedCredentials(providerIdValue, entries) {
 
 export function listCredentialMetadata(providerIdValue) {
   const providerId = normalizeProviderId(providerIdValue);
-  return (readStore().credentials[providerId] || []).map(({ id, providerId: idProvider, label, createdAt, expiresAt, failureCount, cooldownUntil, lastUsedAt, lastSuccessAt, lastFailureAt, lastStatusCode, verification, disabled }) => ({ id, providerId: idProvider, label, createdAt, expiresAt, failureCount, cooldownUntil, lastUsedAt, disabled: disabled === true, lastSuccessAt: lastSuccessAt || null, lastFailureAt: lastFailureAt || null, lastStatusCode: lastStatusCode || null, verification: verification || null }));
+  return (readStore().credentials[providerId] || []).map(({ id, providerId: idProvider, label, createdAt, expiresAt, failureCount, cooldownUntil, lastUsedAt, lastSuccessAt, lastFailureAt, lastStatusCode, authRejectedAt, verification, disabled }) => ({ id, providerId: idProvider, label, createdAt, expiresAt, failureCount, cooldownUntil, lastUsedAt, disabled: disabled === true, authRejectedAt: authRejectedAt || null, lastSuccessAt: lastSuccessAt || null, lastFailureAt: lastFailureAt || null, lastStatusCode: lastStatusCode || null, verification: verification || null }));
 }
 
 export function getCredentialForVerification(providerIdValue, credentialId) {
@@ -127,7 +127,8 @@ export function recordCredentialVerification(providerIdValue, credentialId, veri
   store.credentials[providerId] = entries.map((entry) => {
     if (entry.id !== credentialId) return entry;
     found = true;
-    return { ...entry, verification: safe };
+    const verified = safe?.status === "verified";
+    return { ...entry, verification: safe, ...(verified ? { authRejectedAt: null, failureCount: 0, cooldownUntil: null } : {}) };
   });
   if (found) writeStore(store);
   return found;
@@ -139,6 +140,8 @@ export function selectCredential(providerIdValue) {
   const now = Date.now();
   const candidates = (store.credentials[providerId] || []).filter((entry) => {
     if (entry.disabled === true) return false;
+    if (entry.authRejectedAt) return false;
+    if (entry.verification?.status === "quarantined" || entry.verification?.authenticityStatus === "quarantined") return false;
     if (entry.expiresAt && Date.parse(entry.expiresAt) <= now) return false;
     return !entry.cooldownUntil || Date.parse(entry.cooldownUntil) <= now;
   });
@@ -190,10 +193,18 @@ export function markCredentialResult(providerIdValue, credentialId, success, sta
   const now = new Date().toISOString();
   store.credentials[providerId] = entries.map((entry) => {
     if (entry.id !== credentialId) return entry;
-    if (success) return { ...entry, failureCount: 0, cooldownUntil: null, lastSuccessAt: now };
+    if (success) return { ...entry, failureCount: 0, cooldownUntil: null, authRejectedAt: null, lastSuccessAt: now };
     const failures = Number(entry.failureCount || 0) + 1;
-    const shouldCooldown = statusCode === 401 || statusCode === 403 || statusCode === 429 || failures >= 3;
-    return { ...entry, failureCount: failures, cooldownUntil: shouldCooldown ? new Date(Date.now() + COOLDOWN_MS).toISOString() : entry.cooldownUntil, lastFailureAt: now, lastStatusCode: statusCode };
+    const authRejected = statusCode === 401 || statusCode === 403;
+    const shouldCooldown = statusCode === 429 || failures >= 3;
+    return {
+      ...entry,
+      failureCount: failures,
+      cooldownUntil: shouldCooldown ? new Date(Date.now() + COOLDOWN_MS).toISOString() : entry.cooldownUntil,
+      authRejectedAt: authRejected ? now : entry.authRejectedAt || null,
+      lastFailureAt: now,
+      lastStatusCode: statusCode,
+    };
   });
   writeStore(store);
 }
@@ -201,11 +212,22 @@ export function markCredentialResult(providerIdValue, credentialId, success, sta
 export function getCredentialPoolStatus(providerIdValue) {
   const providerId = normalizeProviderId(providerIdValue);
   const entries = readStore().credentials[providerId] || [];
+  const now = Date.now();
+  const expired = (entry) => entry.expiresAt && Date.parse(entry.expiresAt) <= now;
+  const quarantined = (entry) => entry.verification?.status === "quarantined" || entry.verification?.authenticityStatus === "quarantined";
+  const coolingDown = (entry) => entry.cooldownUntil && Date.parse(entry.cooldownUntil) > now;
+  const rateLimited = (entry) => coolingDown(entry) && Number(entry.lastStatusCode) === 429;
+  const authRejected = (entry) => Boolean(entry.authRejectedAt);
   return {
     count: entries.length,
     disabled: entries.filter((entry) => entry.disabled === true).length,
-    ready: entries.filter((entry) => entry.disabled !== true && (!entry.cooldownUntil || Date.parse(entry.cooldownUntil) <= Date.now())).length,
-    expired: entries.filter((entry) => entry.expiresAt && Date.parse(entry.expiresAt) <= Date.now()).length,
+    expired: entries.filter(expired).length,
+    quarantined: entries.filter(quarantined).length,
+    authRejected: entries.filter(authRejected).length,
+    coolingDown: entries.filter(coolingDown).length,
+    rateLimited: entries.filter(rateLimited).length,
+    ready: entries.filter((entry) => entry.disabled !== true && !expired(entry) && !quarantined(entry) && !authRejected(entry) && !coolingDown(entry)).length,
+    quotaTelemetry: { status: "not_available", source: null, note: "External remaining quota is shown only when a provider exposes it through an authorized official API; generic upstream responses cannot prove account quota." },
   };
 }
 

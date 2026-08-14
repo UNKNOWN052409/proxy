@@ -102,6 +102,24 @@ test("provider catalog includes official providers and safe OmniRoute-style free
   assert.equal(local.allowNoAuth, true);
 });
 
+test("provider operations report disabled and blocked credentials as ineligible for routing", () => {
+  const base = { id: "operations-fixture", enabled: true, apiKeyEnv: "UNSET_OPERATIONS_FIXTURE_KEY" };
+  const emptyPool = { count: 2, ready: 0, disabled: 1, expired: 0, quarantined: 0, authRejected: 1, rateLimited: 0, coolingDown: 0 };
+  const blocked = config.providerOperations(base, { configured: true, credentialPool: emptyPool, quarantined: false });
+  assert.equal(blocked.routingStatus, "credential_blocked");
+  assert.equal(blocked.routingEligible, false);
+  assert.equal(blocked.accounts.authRejected, 1);
+  const disabled = config.providerOperations({ ...base, enabled: false }, { configured: true, credentialPool: { ...emptyPool, ready: 1 }, quarantined: false });
+  assert.equal(disabled.routingStatus, "disabled");
+  assert.equal(disabled.routingEligible, false);
+  const quarantined = config.providerOperations(base, { configured: true, credentialPool: { ...emptyPool, ready: 1 }, quarantined: true });
+  assert.equal(quarantined.routingStatus, "quarantined");
+  assert.equal(quarantined.routingEligible, false);
+  const ready = config.providerOperations(base, { configured: true, credentialPool: { ...emptyPool, ready: 1 }, quarantined: false });
+  assert.equal(ready.routingStatus, "eligible");
+  assert.equal(ready.routingEligible, true);
+});
+
 test("gateway configuration tracks a valid expiry timestamp", () => {
   assert.equal(config.normalizeExpiry("2030-01-01T00:00:00Z", "test"), "2030-01-01T00:00:00.000Z");
   assert.throws(() => config.normalizeExpiry("not-a-date", "test"), /invalid expiresAt/);

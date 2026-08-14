@@ -55,6 +55,27 @@ test("selects, verifies, rotates, and records credential state", () => {
   assert.equal(credentials.selectCredential("test-provider").apiKey, "beta-secret");
 });
 
+test("excludes rejected, rate-limited, and quarantined credentials until recovery", () => {
+  const added = credentials.importEncryptedCredentials("operations-provider", [
+    { apiKey: "rejected-secret", label: "rejected" },
+    { apiKey: "quarantined-secret", label: "quarantined" },
+  ]);
+  credentials.markCredentialResult("operations-provider", added[0].id, false, 401);
+  credentials.recordCredentialVerification("operations-provider", added[1].id, { status: "quarantined", authenticityStatus: "quarantined" });
+  const blocked = credentials.getCredentialPoolStatus("operations-provider");
+  assert.equal(blocked.authRejected, 1);
+  assert.equal(blocked.quarantined, 1);
+  assert.equal(blocked.ready, 0);
+  assert.equal(credentials.selectCredential("operations-provider"), null);
+  credentials.recordCredentialVerification("operations-provider", added[0].id, { status: "verified" });
+  credentials.recordCredentialVerification("operations-provider", added[1].id, { status: "verified" });
+  const recovered = credentials.getCredentialPoolStatus("operations-provider");
+  assert.equal(recovered.authRejected, 0);
+  assert.equal(recovered.quarantined, 0);
+  assert.equal(recovered.ready, 2);
+  assert.equal(credentials.selectCredential("operations-provider").apiKey, "rejected-secret");
+});
+
 test("filters expired credentials and rejects invalid imports", () => {
   const expired = credentials.importEncryptedCredentials("expired-provider", { apiKey: "expired-secret", expiresAt: "2000-01-01T00:00:00Z" })[0];
   assert.equal(credentials.selectCredential("expired-provider"), null);
