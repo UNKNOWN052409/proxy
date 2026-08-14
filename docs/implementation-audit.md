@@ -1,7 +1,7 @@
 # Transparent Implementation Audit
 
-**Audited branch:** `complete-gateway`  
-**Audited commit:** `819580e`  
+**Audited branch:** `complete-gateway`
+**Audit basis:** Runtime routes, provider adapters, dashboard controls, storage, automated tests, and sanitized authorized-endpoint evidence through the latest model/concurrency audit.
 **Audit scope:** Runtime routes, provider adapters, dashboard controls, storage, and the full automated test suite.
 
 ## Interpretation rules
@@ -60,7 +60,7 @@ The most precise current full-suite coverage measurement is **90.35% lines, 73.4
 
 The legacy `/api/accounts/test` migration gap has now been resolved. The route uses the administrator RBAC guard, configured-provider resolution, encrypted account/credential storage, a shared redacted verification service, and persisted safe verification metadata. It no longer hardcodes Kiro/OpenAI test URLs or relies on the obsolete legacy account record for live verification.
 
-A bounded real verification and standalone gateway benchmark were also run against the administrator-supplied authorized OpenAI-compatible endpoint. With the supplied authorization, `/models` returned **15 model IDs**. The bounded chat probes did **not** produce a successful verified completion: tested models returned upstream `502` responses, and one listed model returned `402`. The corrected one-request streaming probe also reached the intended non-duplicated path and returned `502`, rather than a gateway route error. This is recorded as upstream compatibility evidence, not as a gateway success claim. The gateway preserves safe upstream client statuses (`401`, `403`, `404`, `408`, `409`, `413`, `422`, and `429`) rather than collapsing them into a generic `400` response. See `docs/real-qa-report-2026-08-14.json` and the sanitized streaming recheck artifacts.
+A bounded real verification and standalone gateway benchmark were also run against the administrator-supplied authorized OpenAI-compatible endpoint. With the supplied authorization, `/models` returned **15 model IDs**. A later all-model audit made one minimal authenticated chat request per ID: **`gpt-5.6-sol` returned an OpenAI-compatible HTTP `200` completion**, while 13 listed IDs returned upstream `502` and `claude-opus-4-8` returned `402`. A focused follow-up verified `gpt-5.6-sol` chat, SSE streaming, JSON-mode input, and an OpenAI-style tool-call request, all with HTTP `200`. This verifies endpoint compatibility for that model at audit time; it does not prove the claimed hidden backend identity. The gateway preserves safe upstream client statuses (`401`, `403`, `404`, `408`, `409`, `413`, `422`, and `429`) rather than collapsing them into a generic `400` response. See `docs/active-model-audit-2026-08-14.md`, `docs/real-qa-all-models-2026-08-14.json`, and `docs/real-qa-gpt-5.6-sol-2026-08-14.json`.
 
 The initial real 10/100/500 RPM run reached **0 successful OpenAI-shaped responses** and peaked at **114.16 MiB RSS** under upstream failures and retries. The gateway now defaults to **12** concurrent routed operations with a **96-request** pending-backlog limit, configurable through `GATEWAY_MAX_CONCURRENCY` and `GATEWAY_MAX_QUEUE_SIZE`. It returns a clean `503` `queue_overloaded` error for excess pending work, rather than retaining an unbounded backlog. A repeat real 10/100/500 RPM run held standalone RSS to **84.71 MiB peak** and **78.62 MiB median**, meeting the sub-100-MiB requirement for this error-heavy workload. Its results include upstream `429`/`502`/`504` responses and admission-controlled `503` responses at 500 RPM; successful completion throughput remains unverified until an authorized upstream actually completes requests.
 
@@ -68,8 +68,12 @@ After these changes, the current full-suite coverage is **90.35% lines**, **73.4
 
 ### Revised priority remediation order
 
-1. Obtain or configure at least one authorized upstream/model that completes a minimal real chat request, then repeat the 10/100/500 RPM **successful-throughput** benchmark; the guarded error-load RSS target is now measured, but it is not a capacity claim.
+1. Repeat a sustained **successful-throughput** benchmark at 10/100/500 RPM against `gpt-5.6-sol` or another explicitly authorized model. The current 1/2/5/10 concurrent audit verifies only a small bounded burst, not long-duration capacity.
 2. Raise branch coverage, especially in `src/lib/kiro/store.js`, generic adapters, runtime-store failure paths, the usage store, tool branches, and OAuth failure/recovery paths.
 3. Complete live image-generation, vision, device-code, cloud-identity, and per-provider fallback verification only with explicitly authorized provider accounts.
 4. Execute manual authenticated mobile-browser verification; responsive classes and a production build are present, but a human-device session was not available in this audit.
 5. Deploy to the chosen VPS/domain and record actual tunnel health, egress IP, TLS, uptime, and restart evidence.
+
+### Current active-model concurrency update
+
+A bounded real concurrency audit used `gpt-5.6-sol`, the only model that returned a successful minimal completion in the all-model audit. It issued 18 total requests across separate bursts of 1, 2, 5, and 10 simultaneous requests. Every request returned an OpenAI-compatible HTTP `200` completion. At the 10-concurrent level, all 10 requests completed successfully in **11.108 seconds** wall time, with **0.900 effective requests/second**, **5.089 seconds median latency**, and **11.098 seconds p95 latency**. This establishes that the supplied endpoint accepted ten simultaneous small requests at the observed time; it is not a sustained-RPM, SLA, or maximum-capacity certification. See `docs/gpt-5.6-sol-concurrency-2026-08-14.json` and `scripts/active-model-concurrency-qa.py`.

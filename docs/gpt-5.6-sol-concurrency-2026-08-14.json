@@ -1,0 +1,80 @@
+{
+  "model": "gpt-5.6-sol",
+  "endpoint_has_v1_suffix": true,
+  "timeout_seconds": 20.0,
+  "levels": [
+    {
+      "concurrency": 1,
+      "attempted_requests": 1,
+      "valid_completions": 1,
+      "failed_or_incompatible": 0,
+      "status_counts": {
+        "200": 1
+      },
+      "wall_time_ms": 8303.1,
+      "effective_requests_per_second": 0.12,
+      "latency_ms": {
+        "min": 8301.4,
+        "median": 8301.4,
+        "p95": 8301.4,
+        "max": 8301.4
+      }
+    },
+    {
+      "concurrency": 2,
+      "attempted_requests": 2,
+      "valid_completions": 2,
+      "failed_or_incompatible": 0,
+      "status_counts": {
+        "200": 2
+      },
+      "wall_time_ms": 12537.2,
+      "effective_requests_per_second": 0.16,
+      "latency_ms": {
+        "min": 5693.2,
+        "median": 9114.2,
+        "p95": 12535.2,
+        "max": 12535.2
+      }
+    },
+    {
+      "concurrency": 5,
+      "attempted_requests": 5,
+      "valid_completions": 5,
+      "failed_or_incompatible": 0,
+      "status_counts": {
+        "200": 5
+      },
+      "wall_time_ms": 8639.1,
+      "effective_requests_per_second": 0.579,
+      "latency_ms": {
+        "min": 6205.3,
+        "median": 7842.3,
+        "p95": 8633.5,
+        "max": 8633.5
+      }
+    },
+    {
+      "concurrency": 10,
+      "attempted_requests": 10,
+      "valid_completions": 10,
+      "failed_or_incompatible": 0,
+      "status_counts": {
+        "200": 10
+      },
+      "wall_time_ms": 11108.1,
+      "effective_requests_per_second": 0.9,
+      "latency_ms": {
+        "min": 3237.4,
+        "median": 5088.7,
+        "p95": 11097.9,
+        "max": 11097.9
+      }
+    }
+  ],
+  "safety": {
+    "bounded_requests": 18,
+    "completion_content_stored": false,
+    "authorization_stored": false
+  }
+}
