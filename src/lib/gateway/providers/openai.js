@@ -33,7 +33,31 @@ function buildPayload({ body, model, messages, tools }) {
   return payload;
 }
 
-async function postJson(url, options, timeoutMs = Number(process.env.GATEWAY_UPSTREAM_TIMEOUT_MS || 5_000)) {
+function headerNumber(headers, name) {
+  const value = headers.get(name);
+  return value != null && /^\d+$/.test(value.trim()) ? Number(value) : null;
+}
+
+function headerResetAt(headers) {
+  const retryAfter = headers.get("retry-after");
+  if (retryAfter && /^\d+(?:\.\d+)?$/.test(retryAfter.trim())) return new Date(Date.now() + Number(retryAfter) * 1000).toISOString();
+  const reset = headers.get("x-ratelimit-reset-requests") || headers.get("x-ratelimit-reset-tokens");
+  if (reset && !Number.isNaN(Date.parse(reset))) return new Date(reset).toISOString();
+  return null;
+}
+
+function rateLimitObservation(headers) {
+  const requestsRemaining = headerNumber(headers, "x-ratelimit-remaining-requests") ?? headerNumber(headers, "ratelimit-remaining");
+  const tokensRemaining = headerNumber(headers, "x-ratelimit-remaining-tokens");
+  const requestsLimit = headerNumber(headers, "x-ratelimit-limit-requests") ?? headerNumber(headers, "ratelimit-limit");
+  const tokensLimit = headerNumber(headers, "x-ratelimit-limit-tokens");
+  const resetAt = headerResetAt(headers);
+  return [requestsRemaining, tokensRemaining, requestsLimit, tokensLimit, resetAt].some((value) => value != null)
+    ? { requestsRemaining, tokensRemaining, requestsLimit, tokensLimit, resetAt }
+    : null;
+}
+
+async function postJson(url, options, timeoutMs = Number(process.env.GATEWAY_UPSTREAM_TIMEOUT_MS || 5_000), includeMeta = false) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -53,7 +77,7 @@ async function postJson(url, options, timeoutMs = Number(process.env.GATEWAY_UPS
       );
     }
     if (!data || typeof data !== "object") throw gatewayError("Upstream provider returned an invalid JSON response", 502, "upstream_error");
-    return data;
+    return includeMeta ? { data, rateLimit: rateLimitObservation(response.headers) } : data;
   } catch (error) {
     if (error?.name === "AbortError") throw gatewayError("Upstream provider timed out", 504, "upstream_timeout");
     throw error;
@@ -65,7 +89,7 @@ async function postJson(url, options, timeoutMs = Number(process.env.GATEWAY_UPS
 export async function executeOpenAi({ provider, apiKey, body, model, messages, tools }) {
   const payload = buildPayload({ body, model, messages, tools });
   const authHeader = apiKey ? (provider.apiKeyHeader === "api-key" ? { "api-key": apiKey } : { Authorization: `Bearer ${apiKey}` }) : {};
-  const data = await postJson(endpoint(provider.baseUrl, "/chat/completions"), {
+  const { data, rateLimit } = await postJson(endpoint(provider.baseUrl, "/chat/completions"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -74,7 +98,7 @@ export async function executeOpenAi({ provider, apiKey, body, model, messages, t
       ...safeConfiguredHeaders(provider.headers),
     },
     body: JSON.stringify(payload),
-  });
+  }, undefined, true);
 
   const choice = data.choices?.[0];
   if (!choice?.message) throw gatewayError("Upstream provider response did not include an assistant message", 502, "upstream_error");
@@ -87,13 +111,14 @@ export async function executeOpenAi({ provider, apiKey, body, model, messages, t
       usage: data.usage,
     }),
     usage: data.usage || null,
+    rateLimit,
   };
 }
 
 export async function executePathModel({ provider, apiKey, body, model, messages, tools }) {
   const payload = buildPayload({ body, model, messages, tools });
   const authHeader = apiKey ? (provider.apiKeyHeader === "api-key" ? { "api-key": apiKey } : { Authorization: `Bearer ${apiKey}` }) : {};
-  const data = await postJson(provider.baseUrl, {
+  const { data, rateLimit } = await postJson(provider.baseUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -102,7 +127,7 @@ export async function executePathModel({ provider, apiKey, body, model, messages
       ...safeConfiguredHeaders(provider.headers),
     },
     body: JSON.stringify(payload),
-  });
+  }, undefined, true);
   const choice = data.choices?.[0];
   if (!choice?.message) throw gatewayError("Path-style endpoint did not return an assistant message", 502, "upstream_error");
   return {
@@ -114,6 +139,7 @@ export async function executePathModel({ provider, apiKey, body, model, messages
       usage: data.usage,
     }),
     usage: data.usage || null,
+    rateLimit,
   };
 }
 
@@ -165,4 +191,4 @@ export async function executeOpenAiImage({ provider, apiKey, body, model }) {
   })).filter((item) => item.url || item.b64_json) };
 }
 
-export const __testables = { buildPayload, safeConfiguredHeaders, postJson };
+export const __testables = { buildPayload, safeConfiguredHeaders, headerNumber, headerResetAt, rateLimitObservation, postJson };

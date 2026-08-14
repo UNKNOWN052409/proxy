@@ -86,3 +86,38 @@ test("filters expired credentials and rejects invalid imports", () => {
   assert.throws(() => credentials.importEncryptedCredentials("newline-provider", { apiKey: "a\nb" }), /bounded API key/);
   assert.throws(() => credentials.importEncryptedCredentials("object-provider", "not-an-object"), /objects/);
 });
+
+test("stores only bounded standardized rate-limit observations in the credential pool summary", () => {
+  const [added] = credentials.importEncryptedCredentials("telemetry-provider", { apiKey: "telemetry-secret", label: "rate-limited upstream" });
+  assert.equal(credentials.recordCredentialRateLimit("telemetry-provider", added.id, {
+    requestsRemaining: 42,
+    tokensRemaining: 900,
+    requestsLimit: 100,
+    tokensLimit: 1000,
+    resetAt: new Date(Date.now() + 60_000).toISOString(),
+    authorization: "must-not-be-stored",
+  }), true);
+  const status = credentials.getCredentialPoolStatus("telemetry-provider");
+  assert.equal(status.quotaTelemetry.status, "observed_rate_limit");
+  assert.equal(status.quotaTelemetry.requestsRemaining, 42);
+  assert.equal(status.quotaTelemetry.tokensRemaining, 900);
+  assert.match(status.quotaTelemetry.note, /not account balance/i);
+  assert.equal(credentials.recordCredentialRateLimit("telemetry-provider", added.id, { requestsRemaining: -1 }), false);
+  assert.equal(credentials.listCredentialMetadata("telemetry-provider")[0].apiKey, undefined);
+});
+
+
+test("normalizes rate-limit observations without raw upstream headers", () => {
+  const safe = credentials.__testables.normalizeRateLimitObservation({
+    requestsRemaining: "5",
+    tokensRemaining: "not-a-number",
+    requestsLimit: "10",
+    resetAt: "invalid-date",
+    rawHeaders: { authorization: "must-not-persist" },
+  });
+  assert.equal(safe.requestsRemaining, 5);
+  assert.equal(safe.requestsLimit, 10);
+  assert.equal(safe.tokensRemaining, null);
+  assert.equal(safe.resetAt, null);
+  assert.equal("rawHeaders" in safe, false);
+});

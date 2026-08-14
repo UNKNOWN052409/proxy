@@ -1,5 +1,5 @@
 import { getGatewayNotifications, getGatewayRuntimeState, getProviderModels, getProviderSettings, isProviderQuarantined } from "./runtime-store.js";
-import { getCredentialPoolStatus, markCredentialResult, selectCredential } from "./credentials.js";
+import { getCredentialPoolStatus, markCredentialResult, recordCredentialRateLimit, selectCredential } from "./credentials.js";
 import { getDedicatedProviderProfile, listDedicatedProviderProfiles } from "./providers/dedicated.js";
 
 const ALLOWED_SECRET_PREFIXES = ["GATEWAY_", "OPENAI_", "ANTHROPIC_", "GEMINI_", "DASHSCOPE_", "QWEN_", "MOONSHOT_", "XAI_", "MIMO_", "XIAOMI_", "GITLAB_", "LOVABLE_", "KIRO_", "DEEPSEEK_", "GROQ_", "PERPLEXITY_", "MISTRAL_", "COHERE_", "HUGGINGFACE_", "VERTEX_", "AZURE_", "NOTION_", "WINDSURF_", "OPENROUTER_", "TOGETHER_", "FIREWORKS_", "CEREBRAS_", "SAMBANOVA_", "NVIDIA_", "CLOUDFLARE_", "AI_GATEWAY_"];
@@ -473,7 +473,14 @@ export function resolveProvider(model) {
     ? Boolean(provider.region && process.env[provider.accessKeyEnv] && process.env[provider.secretKeyEnv])
     : Boolean(apiKey || provider.allowNoAuth);
   if (!ready) throw new Error(`Provider ${provider.id} is missing its configured credential`);
-  return { provider, model: modelId, apiKey, credentialId: credential?.credentialId || null, markCredentialResult: (success, statusCode) => credential?.credentialId && markCredentialResult(provider.id, credential.credentialId, success, statusCode) };
+  return {
+    provider,
+    model: modelId,
+    apiKey,
+    credentialId: credential?.credentialId || null,
+    markCredentialResult: (success, statusCode) => credential?.credentialId && markCredentialResult(provider.id, credential.credentialId, success, statusCode),
+    recordCredentialRateLimit: (observation) => credential?.credentialId && recordCredentialRateLimit(provider.id, credential.credentialId, observation),
+  };
 }
 
 export function resolveProviderById(providerId) {
@@ -485,7 +492,13 @@ export function resolveProviderById(providerId) {
     ? Boolean(provider.region && process.env[provider.accessKeyEnv] && process.env[provider.secretKeyEnv])
     : Boolean(apiKey || provider.allowNoAuth);
   if (!ready) throw new Error(`Provider ${provider.id} is missing its configured credential`);
-  return { provider, apiKey, credentialId: credential?.credentialId || null, markCredentialResult: (success, statusCode) => credential?.credentialId && markCredentialResult(provider.id, credential.credentialId, success, statusCode) };
+  return {
+    provider,
+    apiKey,
+    credentialId: credential?.credentialId || null,
+    markCredentialResult: (success, statusCode) => credential?.credentialId && markCredentialResult(provider.id, credential.credentialId, success, statusCode),
+    recordCredentialRateLimit: (observation) => credential?.credentialId && recordCredentialRateLimit(provider.id, credential.credentialId, observation),
+  };
 }
 
 export function listGatewayModels() {

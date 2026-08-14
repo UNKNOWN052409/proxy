@@ -209,6 +209,45 @@ export function markCredentialResult(providerIdValue, credentialId, success, sta
   writeStore(store);
 }
 
+function boundedInteger(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 1_000_000_000 ? parsed : null;
+}
+
+function normalizeRateLimitObservation(observation) {
+  if (!observation || typeof observation !== "object") return null;
+  const requestsRemaining = boundedInteger(observation.requestsRemaining);
+  const tokensRemaining = boundedInteger(observation.tokensRemaining);
+  const requestsLimit = boundedInteger(observation.requestsLimit);
+  const tokensLimit = boundedInteger(observation.tokensLimit);
+  const resetAt = observation.resetAt && !Number.isNaN(Date.parse(observation.resetAt)) ? new Date(observation.resetAt).toISOString() : null;
+  if ([requestsRemaining, tokensRemaining, requestsLimit, tokensLimit, resetAt].every((value) => value == null)) return null;
+  return {
+    observedAt: new Date().toISOString(),
+    source: "standard_upstream_rate_limit_headers",
+    requestsRemaining,
+    tokensRemaining,
+    requestsLimit,
+    tokensLimit,
+    resetAt,
+  };
+}
+
+export function recordCredentialRateLimit(providerIdValue, credentialId, observation) {
+  const providerId = normalizeProviderId(providerIdValue);
+  const safe = normalizeRateLimitObservation(observation);
+  if (!safe || !credentialId) return false;
+  const store = readStore();
+  let found = false;
+  store.credentials[providerId] = (store.credentials[providerId] || []).map((entry) => {
+    if (entry.id !== credentialId) return entry;
+    found = true;
+    return { ...entry, rateLimit: safe };
+  });
+  if (found) writeStore(store);
+  return found;
+}
+
 export function getCredentialPoolStatus(providerIdValue) {
   const providerId = normalizeProviderId(providerIdValue);
   const entries = readStore().credentials[providerId] || [];
@@ -227,8 +266,22 @@ export function getCredentialPoolStatus(providerIdValue) {
     coolingDown: entries.filter(coolingDown).length,
     rateLimited: entries.filter(rateLimited).length,
     ready: entries.filter((entry) => entry.disabled !== true && !expired(entry) && !quarantined(entry) && !authRejected(entry) && !coolingDown(entry)).length,
-    quotaTelemetry: { status: "not_available", source: null, note: "External remaining quota is shown only when a provider exposes it through an authorized official API; generic upstream responses cannot prove account quota." },
+    quotaTelemetry: (() => {
+      const observed = entries.map((entry) => entry.rateLimit).filter(Boolean);
+      if (!observed.length) return { status: "not_available", source: null, note: "External remaining quota is shown only when a provider exposes it through an authorized official API or standardized rate-limit headers; generic upstream responses cannot prove account quota." };
+      const latest = observed.sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt))[0];
+      return {
+        status: "observed_rate_limit",
+        source: "standard_upstream_rate_limit_headers",
+        observedCredentials: observed.length,
+        observedAt: latest.observedAt,
+        requestsRemaining: latest.requestsRemaining,
+        tokensRemaining: latest.tokensRemaining,
+        resetAt: latest.resetAt,
+        note: "This is request-rate telemetry reported by the upstream, not account balance, subscription quota, or a ban determination.",
+      };
+    })(),
   };
 }
 
-export const __testables = { encrypt, decrypt, normalizeProviderId, normalizeCredential, COOLDOWN_MS, STORE_PATH };
+export const __testables = { encrypt, decrypt, normalizeProviderId, normalizeCredential, normalizeRateLimitObservation, COOLDOWN_MS, STORE_PATH };

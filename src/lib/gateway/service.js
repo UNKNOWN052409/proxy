@@ -136,6 +136,7 @@ async function executeSelection(selection, body, startedAt) {
     const completion = parseClientManagedToolResponse({ text: answer, tools: body.tools, model: `${provider.id}/${model}` });
     completion.usage = direct.completion?.usage || completion.usage;
     selection.markCredentialResult?.(true, 200);
+    selection.recordCredentialRateLimit?.(direct.rateLimit);
     recordUsage({ provider, model, completion, startedAt, success: true, usageContext: body.__usageContext });
     return { completion, provider, model, mode: "client_managed_tools" };
   }
@@ -143,6 +144,7 @@ async function executeSelection(selection, body, startedAt) {
   const result = await executorFor(provider)({ provider, apiKey, body: { ...body, tool_choice: toolContract.tool_choice, parallel_tool_calls: toolContract.parallel_tool_calls }, model, messages, tools: toolContract.tools });
   const completion = provider.supportsTools && toolContract.tools.length ? normalizeNativeToolCompletion({ completion: result.completion, tools: toolContract.tools, model: `${provider.id}/${model}`, parallelToolCalls: toolContract.parallel_tool_calls }) : result.completion;
   selection.markCredentialResult?.(true, 200);
+  selection.recordCredentialRateLimit?.(result.rateLimit);
   recordUsage({ provider, model, completion, startedAt, success: true, usageContext: body.__usageContext });
   return { completion, provider, model, mode: provider.supportsTools ? "native_tools" : "chat" };
 }
