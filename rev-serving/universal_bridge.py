@@ -476,8 +476,12 @@ class QwenConnector(BaseConnector):
                                    str(r2.status_code) +
                                    " " + r2.text[:200])
 
-            # 3. Parse SSE
+            # 3. Parse SSE — full-resend guard ke saath.
+            # Qwen kabhi-kabhi status=finished frame me poora message
+            # dobara bhejta hai (deltas ke baad). Us case me append
+            # nahi — accumulated text hi final hai.
             pieces = []
+            acc = ""
             for line in r2.iter_lines():
                 if isinstance(line, bytes):
                     line = line.decode("utf-8", "ignore")
@@ -487,9 +491,23 @@ class QwenConnector(BaseConnector):
                 data = line[5:].strip()
                 if data == "[DONE]":
                     break
+                # finished-frame full-resend detect (precise: sirf
+                # status==finished + content + startswith acc)
+                try:
+                    fj = json.loads(data)
+                    fdelta = ((fj.get("choices") or [{}])[0]
+                              .get("delta") or {})
+                    if (fdelta.get("status") == "finished"
+                            and isinstance(fdelta.get("content"), str)
+                            and fdelta["content"]
+                            and fdelta["content"] == acc):
+                        continue  # full resend — skip, already have it
+                except Exception:
+                    pass
                 piece = self.parse_chunk(data)
                 if piece:
                     pieces.append(piece)
+                    acc += piece
                     if stream_cb:
                         try:
                             stream_cb(piece)

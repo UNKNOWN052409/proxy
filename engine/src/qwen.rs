@@ -244,6 +244,7 @@ impl QwenAdapter {
         use futures_util::StreamExt;
         let mut stream = r2.bytes_stream();
         let mut buf = String::new();
+        let mut acc = String::new();
         let mut finished = false;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|e| e.to_string())?;
@@ -263,12 +264,31 @@ impl QwenAdapter {
                 }
                 let Ok(v) = serde_json::from_str::<Value>(data) else {
                     continue };
+                // full-resend guard: status=finished frame poora
+                // accumulated text dobara bhej sakta hai — skip.
+                {
+                    let d = v.pointer("/choices/0/delta");
+                    if let Some(d) = d {
+                        let status = d.get("status")
+                            .and_then(|s| s.as_str());
+                        let content = d.get("content")
+                            .and_then(|c| c.as_str())
+                            .unwrap_or("");
+                        if status == Some("finished")
+                            && !content.is_empty()
+                            && content == acc
+                        {
+                            continue;
+                        }
+                    }
+                }
                 // shape 1: choices[0].delta.content
                 if let Some(piece) = v
                     .pointer("/choices/0/delta/content")
                     .and_then(|c| c.as_str())
                 {
                     if !piece.is_empty() {
+                        acc.push_str(piece);
                         let _ = tx.send(piece.to_string()).await;
                     }
                     continue;
