@@ -16,3 +16,11 @@ engine/target/
 engine/rev.db
 rev.db
 state/accounts.json.bak
+
+# rev-serving runtime tokens — NEVER push
+rev-serving/qwen_token.json
+rev-serving/notion_token_v2.txt
+rev-serving/deepseek_token.txt
+rev-serving/connectors/*_flow.json
+rev-serving/connectors/ds_chat_capture.json
+rev-serving/connectors/notion_ai_flow.json

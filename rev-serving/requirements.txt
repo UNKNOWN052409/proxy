@@ -1,0 +1,6 @@
+# rev-serving — runtime deps (serving layer, Rev.git se shifted)
+# Serving/API: universal_server.py, rev_cli.py, adapters replay
+requests>=2.31.0
+curl_cffi>=0.13.0    # TLS impersonation connectors (Qwen/DS/Notion)
+fastapi>=0.110.0
+uvicorn>=0.29.0
