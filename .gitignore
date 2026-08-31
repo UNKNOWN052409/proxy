@@ -24,3 +24,5 @@ rev-serving/deepseek_token.txt
 rev-serving/connectors/*_flow.json
 rev-serving/connectors/ds_chat_capture.json
 rev-serving/connectors/notion_ai_flow.json
+__pycache__/
+*.pyc
