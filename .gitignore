@@ -12,3 +12,7 @@ data/
 # OS junk
 Thumbs.db
 .DS_Store
+engine/target/
+engine/rev.db
+rev.db
+state/accounts.json.bak

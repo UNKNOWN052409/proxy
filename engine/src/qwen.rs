@@ -1,0 +1,298 @@
+// Qwen adapter — ported from the live-proven Python QwenConnector
+// (/home/kali/Rev/universal_bridge.py, verified SERVER_E2E_OK today).
+// Single-account: user's own guest session token from qwen_token.json.
+// Design: NO scraping, NO anti-detection evasion, NO multi-account
+// rotation, NO captcha solving.
+//
+// TLS caveat: reqwest+rustls ka JA3 Chrome se match nahi karta —
+// abhi WAF cookie warmup se 200 mil raha hai (aaj Python curl_cffi
+// chrome131 ke saath proven; Rust me bhi yahi recipe). Agar Qwen
+// kabhi TLS fingerprint reject kare, rquest crate (Chrome
+// impersonation) pe switch karna hoga.
+
+use crate::{Adapter};
+use async_trait::async_trait;
+use serde_json::{json, Value};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc;
+
+pub struct QwenAdapter {
+    pub token: String,
+    pub umid: String,
+}
+
+fn now_secs() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
+}
+
+impl QwenAdapter {
+    pub fn from_file(path: &str) -> Option<Self> {
+        let raw = std::fs::read_to_string(path).ok()?;
+        let v: Value = serde_json::from_str(&raw).ok()?;
+        Some(Self {
+            token: v.get("token")?.as_str()?.to_string(),
+            umid: v
+                .get("umid")
+                .and_then(|u| u.as_str())
+                .unwrap_or("")
+                .to_string(),
+        })
+    }
+}
+
+// ctime-style string: "Mon Aug 31 09:00:00 2026"
+fn ctime_now() -> String {
+    // epoch -> days since 1970 -> simple civil date conversion
+    let secs = now_secs();
+    let days = secs / 86400;
+    let tod = secs % 86400;
+    let (h, m, s) = (tod / 3600, (tod % 3600) / 60, tod % 60);
+    // Howard Hinnant's civil_from_days
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mth = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if mth <= 2 { y + 1 } else { y };
+    static WDAY: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue",
+        "Wed"]; // 1970-01-01 = Thursday
+    static MON: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let wd = WDAY[(days.rem_euclid(7)) as usize];
+    format!("{}, {} {} {} {:02}:{:02}:{:02} GMT",
+            wd, d, MON[(mth - 1) as usize], year, h, m, s)
+}
+
+#[async_trait]
+impl Adapter for QwenAdapter {
+    fn name(&self) -> &'static str { "qwen" }
+
+    fn models(&self) -> Vec<String> {
+        vec!["qwen".into(), "qwen3.7-plus".into(),
+             "qwen3.8-max".into()]
+    }
+
+    async fn chat(&self, prompt: &str, model: &str)
+        -> Result<String, String> {
+        let (tx, mut rx) = mpsc::channel::<String>(64);
+        self.chat_stream_inner(prompt, model, tx).await?;
+        let mut out = String::new();
+        while let Some(p) = rx.recv().await {
+            out.push_str(&p);
+        }
+        Ok(out)
+    }
+
+    async fn chat_stream(
+        &self,
+        prompt: &str,
+        model: &str,
+        tx: mpsc::Sender<String>,
+    ) -> Result<(), String> {
+        self.chat_stream_inner(prompt, model, tx).await
+    }
+}
+
+impl QwenAdapter {
+    async fn chat_stream_inner(
+        &self,
+        prompt: &str,
+        model: &str,
+        tx: mpsc::Sender<String>,
+    ) -> Result<(), String> {
+        let real_model = match model {
+            "qwen" | "qwen-plus" | "qwen3.7-plus" => "qwen3.7-plus",
+            "qwen-max" | "qwen3.8-max" => "qwen3.8-max",
+            _ => "qwen3.7-plus",
+        };
+
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
+                         AppleWebKit/537.36 (KHTML, like Gecko) \
+                         Chrome/131.0.0.0 Safari/537.36")
+            .cookie_store(true)
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        // 1. WAF warmup — landing GET (acw_tc cookies)
+        let _ = client
+            .get("https://chat.qwen.ai/")
+            .header("accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,\
+                 */*;q=0.8")
+            .header("accept-language", "en-US,en;q=0.9")
+            .send()
+            .await
+            .map_err(|e| format!("warmup: {}", e))?;
+
+        // token cookie manually — reqwest cookie_store domain
+        // matching ke saath issues se bachne ke liye header use karo
+        let cookie = format!("token={}", self.token);
+
+        // 2. chats/new
+        let r1 = client
+            .post("https://chat.qwen.ai/api/v2/chats/new")
+            .header("content-type", "application/json")
+            .header("accept",
+                    "application/json, text/plain, */*")
+            .header("source", "web")
+            .header("version", "0.2.87")
+            .header("bx-v", "2.5.37")
+            .header("timezone", ctime_now())
+            .header("bx-ua", "default_not_value")
+            .header("bx-umidtoken", &self.umid)
+            .header("origin", "https://chat.qwen.ai")
+            .header("referer", "https://chat.qwen.ai/c/new-chat")
+            .header("x-request-id",
+                    uuid::Uuid::new_v4().to_string())
+            .header("cookie", &cookie)
+            .json(&json!({
+                "chatId": "",
+                "models": [real_model],
+                "project_id": "",
+                "timestamp": now_secs(),
+                "chat_type": "t2t",
+                "chat_mode": "normal",
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("chats/new: {}", e))?;
+        if r1.status().as_u16() != 200 {
+            return Err(format!("chats/new: HTTP {}", r1.status()));
+        }
+        let j1: Value = r1.json().await
+            .map_err(|e| e.to_string())?;
+        let chat_id = j1
+            .pointer("/data/id")
+            .and_then(|v| v.as_str())
+            .ok_or("chats/new: no id")?
+            .to_string();
+
+        // 3. completions (SSE)
+        let fid = uuid::Uuid::new_v4().to_string();
+        let ts = now_secs();
+        let body = json!({
+            "stream": true,
+            "version": "2.1",
+            "incremental_output": true,
+            "chatId": chat_id,
+            "parentId": "",
+            "chat_id": chat_id,
+            "chat_mode": "normal",
+            "model": real_model,
+            "parent_id": null,
+            "messages": [{
+                "id": null,
+                "fid": fid,
+                "parentId": null,
+                "childrenIds": [],
+                "role": "user",
+                "content": prompt,
+                "user_action": "chat",
+                "files": [],
+                "timestamp": ts,
+                "models": [real_model],
+                "model": "",
+                "chat_type": "t2t",
+                "feature_config": {
+                    "thinking_enabled": false,
+                    "output_schema": "phase",
+                    "research_mode": "normal",
+                    "auto_thinking": false,
+                    "thinking_mode": "Auto",
+                    "thinking_format": "summary",
+                    "auto_search": false
+                },
+                "extra": {"meta": {"subChatType": "t2t"}},
+                "sub_chat_type": "t2t",
+                "parent_id": null
+            }],
+            "timestamp": ts
+        });
+
+        let url = format!(
+            "https://chat.qwen.ai/api/v2/chat/completions?chat_id={}",
+            chat_id);
+        let r2 = client
+            .post(&url)
+            .header("content-type", "application/json")
+            .header("accept", "application/json")
+            .header("source", "web")
+            .header("version", "0.2.87")
+            .header("bx-v", "2.5.37")
+            .header("timezone", ctime_now())
+            .header("bx-ua", "default_not_value")
+            .header("bx-umidtoken", &self.umid)
+            .header("origin", "https://chat.qwen.ai")
+            .header("referer", format!("https://chat.qwen.ai/c/{}", chat_id))
+            .header("x-request-id", uuid::Uuid::new_v4().to_string())
+            .header("x-accel-buffering", "no")
+            .header("cookie", &cookie)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("completions: {}", e))?;
+        if r2.status().as_u16() != 200 {
+            return Err(format!("completions: HTTP {}", r2.status()));
+        }
+
+        // 4. SSE parse — choices[0].delta.content accumulate
+        use futures_util::StreamExt;
+        let mut stream = r2.bytes_stream();
+        let mut buf = String::new();
+        let mut finished = false;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| e.to_string())?;
+            buf.push_str(&String::from_utf8_lossy(&chunk));
+            loop {
+                let Some(pos) = buf.find('\n') else { break };
+                let line: String =
+                    buf.drain(..=pos).collect();
+                let line = line.trim();
+                if !line.starts_with("data:") {
+                    continue;
+                }
+                let data = line[5..].trim();
+                if data == "[DONE]" {
+                    finished = true;
+                    break;
+                }
+                let Ok(v) = serde_json::from_str::<Value>(data) else {
+                    continue };
+                // shape 1: choices[0].delta.content
+                if let Some(piece) = v
+                    .pointer("/choices/0/delta/content")
+                    .and_then(|c| c.as_str())
+                {
+                    if !piece.is_empty() {
+                        let _ = tx.send(piece.to_string()).await;
+                    }
+                    continue;
+                }
+                // shape 2 (python parse_chunk): phase/content
+                if let Some(phase) = v.get("phase") {
+                    let ok_phase = phase.is_null()
+                        || matches!(phase.as_str(),
+                            Some("answer") | Some("continue"));
+                    if ok_phase {
+                        if let Some(c) = v.get("content")
+                            .and_then(|c| c.as_str())
+                        {
+                            if !c.is_empty() {
+                                let _ = tx.send(c.to_string()).await;
+                            }
+                        }
+                    }
+                }
+            }
+            if finished { break; }
+        }
+        Ok(())
+    }
+}
+
+// base_headers helper unused — removed.
