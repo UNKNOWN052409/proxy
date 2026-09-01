@@ -15,7 +15,17 @@ import os
 
 PORT_MOCK = 9999
 PORT_ADAP = 8001
-PY = "./venv/bin/python"
+
+# venv resolve: PY_OVERRIDE env ya known venv fallbacks (rev-serving
+# ka apna venv, Rev.git ka shared venv, system python)
+_CAND = [
+    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 "venv", "bin", "python"),
+    "/home/kali/Rev/venv/bin/python",
+    sys.executable,
+]
+PY = os.environ.get("PY_OVERRIDE") or next(
+    (p for p in _CAND if os.path.exists(p)), sys.executable)
 
 
 def wait_port(port, timeout=15):

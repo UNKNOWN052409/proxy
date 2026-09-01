@@ -316,11 +316,19 @@ async def chat_completions(request: Request):
 
 @app.get("/v1/models")
 async def models():
-    # live passthrough — chat.qwen.ai/api/models bina auth khulta hai
+    # live passthrough — chat.qwen.ai/api/models bina auth khulta hai.
+    # Timeout chhota rakho — mock/test runs pe live fetch fail-fast ho
+    # aur local model_map hi turant serve ho jaye.
+    live = []
     try:
-        r = requests.get("https://chat.qwen.ai/api/models",
-                         headers={"User-Agent": CONFIG["upstream_headers"].get(
-                             "User-Agent", "Mozilla/5.0")}, timeout=10)
+        import asyncio
+        r = await asyncio.wait_for(
+            asyncio.to_thread(
+                requests.get, "https://chat.qwen.ai/api/models",
+                headers={"User-Agent": CONFIG["upstream_headers"].get(
+                    "User-Agent", "Mozilla/5.0")},
+                timeout=3),
+            timeout=4)
         live = [m["id"] for m in r.json().get("data", [])]
     except Exception:
         live = []
