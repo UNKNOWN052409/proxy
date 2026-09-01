@@ -4,7 +4,11 @@
 // Design: NO scraping, NO anti-bot evasion, NO multi-account rotation.
 
 mod qwen;
+mod deepseek;
+mod generic_flow;
 
+use deepseek::DeepSeekAdapter;
+use generic_flow::GenericFlowAdapter;
 use qwen::QwenAdapter;
 
 use axum::{
@@ -132,13 +136,54 @@ impl Registry {
         if let Some(qa) = QwenAdapter::from_file(&token_path) {
             adapters.push(Box::new(qa));
         }
+        // deepseek token file (browser login se harvested)
+        let ds_path = std::env::var("DS_TOKEN_FILE")
+            .unwrap_or_else(|_| {
+                "/home/kali/Rev/deepseek_token.txt".into()
+            });
+        if let Some(da) = DeepSeekAdapter::from_file(&ds_path) {
+            adapters.push(Box::new(da));
+        }
+        // generic captured flows — auto_pipeline.py ke config(s).
+        // FLOW_CONFIG_DIR me har app ka <app>.config.json rakho; sab
+        // load ho jaate hain (articles apps, chat apps, sab same plug).
+        let flow_dir = std::env::var("FLOW_CONFIG_DIR").unwrap_or_else(|_| {
+            "/home/kali/Rev/re_capture/flows".into()
+        });
+        if let Ok(entries) = std::fs::read_dir(&flow_dir) {
+            let mut paths: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.extension().and_then(|x| x.to_str()) == Some("json")
+                })
+                .collect();
+            paths.sort();
+            for p in paths {
+                for ga in GenericFlowAdapter::from_config(
+                    p.to_str().unwrap_or_default()) {
+                    adapters.push(Box::new(ga));
+                }
+            }
+        }
         Self { inner: Arc::new(adapters) }
     }
     pub fn get(&self, name: &str) -> Option<&dyn Adapter> {
-        self.inner
+        // 1) adapter naam se (e.g. "qwen", "echo")
+        if let Some(a) = self
+            .inner
             .iter()
             .map(|a| a.as_ref())
             .find(|a| a.name() == name)
+        {
+            return Some(a);
+        }
+        // 2) model id/alias se (e.g. "qwen3.8-max",
+        //    "mockarticles-v2-articles") — models list me dhundo
+        self.inner
+            .iter()
+            .map(|a| a.as_ref())
+            .find(|a| a.models().iter().any(|m| m == name))
     }
     pub fn names(&self) -> Vec<&'static str> {
         self.inner.iter().map(|a| a.name()).collect()
@@ -211,6 +256,14 @@ struct ChatReq {
     model: Option<String>,
     messages: Vec<ChatMsg>,
     stream: Option<bool>,
+    /// Kitne output tokens chahiye — adapter prompt me inject hota hai
+    /// taaki ek hi request me maximum content aaye (kam requests).
+    #[serde(default)]
+    max_tokens: Option<u64>,
+    /// Ek hi request me multiple prompts — responses array me utne hi
+    /// replies (batch mode: N prompts, 1 HTTP call round-trip shape).
+    #[serde(default)]
+    batch: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -237,6 +290,45 @@ fn render_prompt(msgs: &[ChatMsg]) -> String {
     parts.join("\n\n")
 }
 
+/// Token-efficiency: LO ka rule — kam requests me maximum output.
+/// max_tokens ko prompt me directive ki tarah inject karo (adapters
+/// jo native max_tokens support nahi karte unke liye bhi kaam karta
+/// hai), aur batch prompts ko ek single mega-prompt me merge karo.
+fn render_prompt_full(
+    msgs: &[ChatMsg],
+    max_tokens: Option<u64>,
+    batch: &Option<Vec<String>>,
+) -> String {
+    let mut p = render_prompt(msgs);
+    // LO ka rule: har request me max output. max_tokens na bhi diya ho
+    // to default full-detail directive — adaptive budget line.
+    let budget = match max_tokens.filter(|m| *m > 0) {
+        Some(mt) => format!("roughly {mt} tokens"),
+        None => "as long as the full answer needs".into(),
+    };
+    p = format!(
+        "{p}\n\n[Output budget: complete, thorough answer of {budget}. \
+         Do not stop early; do not summarize short. Cover everything \
+         asked.]",
+    );
+    if let Some(items) = batch {
+        if !items.is_empty() {
+            let numbered: String = items
+                .iter()
+                .enumerate()
+                .map(|(i, s)| format!("{}. {}", i + 1, s))
+                .collect::<Vec<_>>()
+                .join("\n");
+            p = format!(
+                "{p}\n\n[BATCH MODE — answer EVERY item below in order, \
+                 separated by \"=== <item number> ===\" headers. Ek \
+                 combined reply me sab items cover karo.]\n{numbered}",
+            );
+        }
+    }
+    p
+}
+
 fn sse_frame(model: &str, delta: Value, finish: Option<&str>) -> String {
     json!({
         "id": format!("chatcmpl-{}", uuid::Uuid::new_v4()),
@@ -261,7 +353,8 @@ async fn completions(
         return unauthorized();
     }
     let model = body.model.clone().unwrap_or_else(|| "echo".into());
-    let prompt = render_prompt(&body.messages);
+    let prompt = render_prompt_full(
+        &body.messages, body.max_tokens, &body.batch);
     let reg = REGISTRY_CELL.get();
 
     let Some(adapter) = reg.get(&model) else {

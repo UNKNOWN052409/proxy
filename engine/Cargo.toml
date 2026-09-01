@@ -17,6 +17,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 futures-util = "0.3"
 hex = "0.4"
 async-trait = "0.1"
+# DeepSeek PoW (DeepSeekHashV1 = SHA-256 brute force) + b64 x-ds-pow-response
+sha2 = "0.10"
+base64 = "0.22"
 
 [profile.release]
 opt-level = "z"

@@ -179,6 +179,31 @@ async def chat_completions(request: Request):
     messages = body.get("messages", [])
     is_stream = body.get("stream", False)
 
+    # ---- token-efficiency (LO ka rule): kam requests, max output ----
+    # engine (revd render_prompt_full) ka hi behaviour — har connector
+    # ke liye, koi native max_tokens support nahi chahiye.
+    max_tokens = body.get("max_tokens") or 0
+    batch = body.get("batch") or []
+    if max_tokens or batch:
+        messages = [dict(m) for m in messages]
+        extra = ""
+        if max_tokens:
+            extra += ("\n\n[Output budget: complete, thorough answer of "
+                      f"roughly {max_tokens} tokens. Do not stop early; "
+                      "do not summarize short. Cover everything asked.]")
+        if batch:
+            numbered = "\n".join(f"{i + 1}. {s}"
+                                 for i, s in enumerate(batch))
+            extra += ("\n\n[BATCH MODE — answer EVERY item in order, "
+                      'separated by "=== <item number> ===" headers.]\n'
+                      f"{numbered}")
+        if messages and messages[-1].get("role") == "user":
+            last = messages[-1]
+            messages[-1] = {**last, "content":
+                            str(last.get("content", "")) + extra}
+        elif messages:
+            messages.append({"role": "user", "content": extra.strip()})
+
     # real model ids + aliases -> connector name resolve
     from universal_bridge import NOTION_MODELS
     if model.startswith("qwen"):

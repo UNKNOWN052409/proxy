@@ -164,6 +164,19 @@ npm run build
 
 The verified repository suite currently passes all regression tests. Coverage is tracked separately from test pass/fail status and is not claimed as 100% unless the coverage report reaches that level.
 
+## 13. Rev engine (Rust, `engine/`)
+
+`revd` is a small Rust OpenAI-compatible `/v1` server with a pluggable adapter registry. Adapters are single-account, user-owned-session replay implementations (the operator's own credentials and captured flows); the registry ships an echo adapter plus optional Qwen, DeepSeek, and generic captured-flow adapters loaded from config directories.
+
+- Adapter trait: `engine/src/main.rs` — `chat` / `chat_stream`, SQLite usage log, `sk-fabri-` key system
+- Qwen adapter: `engine/src/qwen.rs` — web-session flow (warmup GET, chats/new, SSE completions), ported from the Python QwenConnector
+- DeepSeek adapter: `engine/src/deepseek.rs` — proof-of-work handshake plus SSE
+- GenericFlow adapter: `engine/src/generic_flow.rs` — replays any user-captured flow config (`FLOW_CONFIG_DIR`), JSON or SSE, multi-app `apps` array supported
+- Model-alias routing: requests address adapters by name (`qwen`) or by model id (`qwen3.8-max`, flow names)
+- Token efficiency: request fields `max_tokens` and `batch` — one request, maximum output; a full-output directive is injected by default even without `max_tokens` (`render_prompt_full`)
+
+The Python serving layer (`rev-serving/universal_server.py`) accepts the same `max_tokens`/`batch` fields for every connector, keeping behavior consistent between the Rust engine and the Python bridge.
+
 ## References
 
 [1]: https://nodejs.org/en/download Node.js downloads and supported runtime versions.
