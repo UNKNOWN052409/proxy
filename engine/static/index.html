@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rev — Qwen Proxy Engine</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b23; --panel2: #1d2430;
+    --line: #2a3242; --text: #e6ebf2; --dim: #8b95a7;
+    --accent: #6ee7a8; --accent2: #5b8def; --danger: #ef6e6e;
+    --warn: #e8c46e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+  h1 { font-size: 20px; letter-spacing: .5px; }
+  h1 .dot { color: var(--accent); }
+  .sub { color: var(--dim); font-size: 12px; }
+  .status-chip { margin-left: auto; font-size: 12px; padding: 3px 10px;
+    border: 1px solid var(--line); border-radius: 20px; color: var(--dim); }
+  .status-chip.live { color: var(--accent); border-color: var(--accent); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px; margin-bottom: 22px; }
+  .stat { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px; }
+  .stat .label { color: var(--dim); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 1px; }
+  .stat .value { font-size: 22px; margin-top: 4px; color: var(--accent); }
+  .stat .value.blue { color: var(--accent2); }
+
+  section { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 18px; margin-bottom: 22px; }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--dim); margin-bottom: 14px; }
+
+  form.row { display: flex; gap: 8px; flex-wrap: wrap; }
+  input, select, button {
+    background: var(--panel2); border: 1px solid var(--line);
+    color: var(--text); border-radius: 6px; padding: 8px 10px;
+    font: inherit; outline: none;
+  }
+  input:focus, select:focus { border-color: var(--accent2); }
+  input { min-width: 140px; flex: 1; }
+  input[type="number"] { flex: 0; width: 90px; }
+  button { cursor: pointer; white-space: nowrap; }
+  button.primary { background: var(--accent); color: #08130c; font-weight: 700;
+    border-color: var(--accent); }
+  button.primary:hover { filter: brightness(1.1); }
+  button.ghost { background: transparent; }
+  button.mini { padding: 3px 8px; font-size: 12px; }
+  button.del { color: var(--danger); border-color: var(--danger);
+    background: transparent; }
+  button:disabled { opacity: .5; cursor: wait; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--dim); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 1px;
+    padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  tr:last-child td { border-bottom: none; }
+  td .email { color: var(--text); font-weight: 600; }
+  td .hint { color: var(--dim); font-size: 11px; }
+  .wtag { display: inline-block; padding: 2px 8px; border-radius: 12px;
+    background: var(--panel2); border: 1px solid var(--line); }
+  .wtag.high { color: var(--warn); border-color: var(--warn); }
+  .empty { color: var(--dim); text-align: center; padding: 26px 0; }
+
+  .msg { position: fixed; bottom: 18px; right: 18px; max-width: 360px;
+    background: var(--panel2); border: 1px solid var(--line);
+    border-left: 3px solid var(--accent); border-radius: 8px;
+    padding: 12px 14px; font-size: 13px; box-shadow: 0 8px 30px rgba(0,0,0,.4);
+    opacity: 0; transform: translateY(8px); transition: all .25s; }
+  .msg.show { opacity: 1; transform: none; }
+  .msg.err { border-left-color: var(--danger); }
+
+  .usage-row { display: flex; gap: 10px; align-items: center; padding: 6px 0;
+    border-bottom: 1px solid var(--line); font-size: 12px; color: var(--dim); }
+  .usage-row:last-child { border: none; }
+  .usage-row b { color: var(--text); }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--accent2); font-size: 12px; }
+  pre { background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 10px; font-size: 11.5px; overflow-x: auto;
+    margin-top: 8px; color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>rev<span class="dot">•</span>engine</h1>
+    <span class="sub">qwen multi-account proxy</span>
+    <span class="status-chip" id="chip">checking…</span>
+  </header>
+
+  <div class="grid">
+    <div class="stat"><div class="label">pool size</div>
+      <div class="value" id="s-pool">—</div></div>
+    <div class="stat"><div class="label">total weight</div>
+      <div class="value blue" id="s-weight">—</div></div>
+    <div class="stat"><div class="label">requests/min limit</div>
+      <div class="value blue" id="s-rpm">—</div></div>
+    <div class="stat"><div class="label">recent 200s</div>
+      <div class="value" id="s-ok">—</div></div>
+  </div>
+
+  <section>
+    <h2>add account</h2>
+    <form class="row" id="f-login">
+      <input id="a-email" type="email" placeholder="dost ka email" required>
+      <input id="a-pass" type="password" placeholder="password" required>
+      <input id="a-label" type="text" placeholder="label (optional)">
+      <input id="a-weight" type="number" min="1" max="100" value="100" title="points/weight">
+      <button class="primary" id="b-login">login + add</button>
+    </form>
+    <form class="row" id="f-token" style="margin-top:10px">
+      <input id="t-email" type="text" placeholder="label/email" required>
+      <input id="t-token" type="text" placeholder="qwen token (direct paste)" required>
+      <input id="t-weight" type="number" min="1" max="100" value="100">
+      <button class="ghost">add token</button>
+    </form>
+    <details>
+      <summary>token kaise milega?</summary>
+      <pre>chat.qwen.ai kholke login karo → DevTools → Application →
+localStorage → "token" key copy karo → yahan paste.
+Ya seedha email/pass se login karo — hum /api/v2/auths/signin
+se token harvest karke store kar dete hain.</pre>
+    </details>
+  </section>
+
+  <section>
+    <h2>accounts</h2>
+    <table id="tbl">
+      <thead><tr>
+        <th>email / label</th><th>token</th><th>weight</th><th>added</th><th></th>
+      </tr></thead>
+      <tbody><tr><td colspan="5" class="empty">loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>usage (last 20)</h2>
+    <div id="usage"><div class="empty">—</div></div>
+    <details>
+      <summary>API use kaise karein (OpenAI-compatible)</summary>
+      <pre>curl http://HOST:8000/v1/chat/completions \
+  -H "Authorization: Bearer sk-fabri-…" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3.8-max",
+       "messages":[{"role":"user","content":"hi"}]}'
+
+models: qwen | qwen3.7-plus | qwen3.8-max
+har request naya chat banati hai aur turant delete karti hai —
+account owners ki history me proxy chats kabhi nahi dikhte.</pre>
+    </details>
+  </section>
+</div>
+
+<div class="msg" id="msg"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let KEY = localStorage.getItem("rev_key") || "";
+if (!KEY) {
+  KEY = prompt("sk-fabri- API key daalo (revd key gen se milti hai):") || "";
+  localStorage.setItem("rev_key", KEY);
+}
+
+function toast(text, err) {
+  const m = $("msg");
+  m.textContent = text;
+  m.className = "msg show" + (err ? " err" : "");
+  setTimeout(() => m.className = "msg", 3500);
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, {
+    ...opts,
+    headers: {
+      "Authorization": "Bearer " + KEY,
+      "Content-Type": "application/json",
+      ...(opts && opts.headers || {}),
+    },
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error && j.error.message || r.status);
+  return j;
+}
+
+async function refresh() {
+  try {
+    const h = await fetch("/health").then(r => r.json());
+    $("chip").textContent = "engine " + (h.status === "ok" ? "live" : "?");
+    $("chip").className = "status-chip live";
+  } catch {
+    $("chip").textContent = "engine down";
+    $("chip").className = "status-chip";
+  }
+  try {
+    const d = await api("/api/accounts");
+    const accs = d.accounts || [];
+    const pool = d.live_pool || [];
+    $("s-pool").textContent = pool.length;
+    $("s-weight").textContent = (d.accounts || [])
+      .reduce((s, a) => s + (a.weight || 0), 0);
+    $("s-rpm").textContent = d.rpm_limit || "∞";
+
+    const tb = $("tbl").tBodies[0];
+    tb.innerHTML = "";
+    if (!accs.length) {
+      tb.innerHTML = '<tr><td colspan="5" class="empty">koi account nahi — upar se add karo</td></tr>';
+    }
+    for (const a of accs) {
+      const tr = document.createElement("tr");
+      const live = pool.find(p => p.email === a.email);
+      tr.innerHTML = `
+        <td><span class="email">${esc(a.email)}</span>
+            ${a.label ? `<span class="hint"> · ${esc(a.label)}</span>` : ""}</td>
+        <td class="hint">${esc(a.token_hint || "")} ${live ? "· live" : ""}</td>
+        <td><span class="wtag ${a.weight > 60 ? "high" : ""}">${a.weight} pts</span></td>
+        <td class="hint">${new Date(a.added_at * 1000).toLocaleString()}</td>
+        <td>
+          <button class="mini" onclick="setW('${esc(a.email)}')">±w</button>
+          <button class="mini del" onclick="del('${esc(a.email)}')">del</button>
+        </td>`;
+      tb.appendChild(tr);
+    }
+  } catch (e) { toast("accounts: " + e.message, true); }
+}
+
+async function refreshUsage() {
+  try {
+    const d = await api("/api/accounts");
+  } catch {}
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g,
+    c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+window.setW = async (email) => {
+  const w = prompt("naya weight (1-100 points):", "100");
+  if (!w) return;
+  try {
+    await api("/api/accounts/" + encodeURIComponent(email), {
+      method: "PATCH", body: JSON.stringify({ weight: +w })});
+    toast("weight set " + w);
+    refresh();
+  } catch (e) { toast(e.message, true); }
+};
+
+window.del = async (email) => {
+  if (!confirm(email + " remove karein?")) return;
+  try {
+    await api("/api/accounts/" + encodeURIComponent(email), { method: "DELETE" });
+    toast("removed");
+    refresh();
+  } catch (e) { toast(e.message, true); }
+};
+
+$("f-login").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("b-login");
+  btn.disabled = true; btn.textContent = "logging in…";
+  try {
+    const d = await api("/api/accounts/login", {
+      method: "POST",
+      body: JSON.stringify({
+        email: $("a-email").value,
+        password: $("a-pass").value,
+        label: $("a-label").value || undefined,
+        weight: +($("a-weight").value || 100),
+      }),
+    });
+    toast(`added ${d.email} — pool ${d.pool_size}`);
+    $("a-pass").value = "";
+    refresh();
+  } catch (err) { toast("login fail: " + err.message, true); }
+  btn.disabled = false; btn.textContent = "login + add";
+});
+
+$("f-token").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const d = await api("/api/accounts/token", {
+      method: "POST",
+      body: JSON.stringify({
+        email: $("t-email").value,
+        token: $("t-token").value.trim(),
+        weight: +($("t-weight").value || 100),
+      }),
+    });
+    toast(`token added — pool ${d.pool_size}`);
+    $("t-token").value = "";
+    refresh();
+  } catch (err) { toast(err.message, true); }
+});
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

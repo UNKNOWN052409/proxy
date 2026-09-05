@@ -12,10 +12,10 @@ use generic_flow::GenericFlowAdapter;
 use qwen::QwenAdapter;
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    response::{sse::{Event, Sse}, IntoResponse, Response},
-    routing::{get, post},
+    response::{sse::{Event, Sse}, Html, IntoResponse, Response},
+    routing::{delete, get, post},
     Json, Router,
 };
 use rand::RngCore;
@@ -81,10 +81,46 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             ts INTEGER, key TEXT, provider TEXT, model TEXT,
             tokens_in INTEGER, tokens_out INTEGER,
             latency_ms INTEGER, status_code INTEGER);",
-    )
+    )?;
+    // v2 columns — multi-account Qwen layer (05-Sep). ALTER hai kyunki
+    // purani rev.db me accounts table bina in columns ke exist karti hai.
+    let cols = [
+        ("email", "ALTER TABLE accounts ADD COLUMN email TEXT DEFAULT ''"),
+        ("token", "ALTER TABLE accounts ADD COLUMN token TEXT DEFAULT ''"),
+        ("umid",  "ALTER TABLE accounts ADD COLUMN umid TEXT DEFAULT ''"),
+        ("weight","ALTER TABLE accounts ADD COLUMN weight INTEGER DEFAULT 100"),
+    ];
+    for (_, sql) in cols {
+        let _ = conn.execute(sql, []); // already-exists = ignore
+    }
+    Ok(())
 }
 
 // ---------------- adapter trait + registry ----------------
+
+/// Arc<QwenAdapter> ke liye thin shim — registry Box<dyn Adapter> me
+/// shared pool daalne ke liye.
+struct PoolShim(std::sync::Arc<qwen::QwenAdapter>);
+
+#[async_trait::async_trait]
+impl Adapter for PoolShim {
+    fn name(&self) -> &'static str { "qwen" }
+    fn models(&self) -> Vec<String> {
+        vec!["qwen".into(), "qwen3.7-plus".into(), "qwen3.8-max".into()]
+    }
+    async fn chat(&self, prompt: &str, model: &str)
+        -> Result<String, String> {
+        self.0.chat(prompt, model).await
+    }
+    async fn chat_stream(
+        &self,
+        prompt: &str,
+        model: &str,
+        tx: mpsc::Sender<String>,
+    ) -> Result<(), String> {
+        self.0.chat_stream(prompt, model, tx).await
+    }
+}
 
 #[async_trait::async_trait]
 pub trait Adapter: Send + Sync {
@@ -127,16 +163,19 @@ impl Registry {
     pub fn new() -> Self {
         let mut adapters: Vec<Box<dyn Adapter>> =
             vec![Box::new(EchoAdapter)];
-        // qwen token file ho to plug karo (single-account, user ka
-        // apna guest token). Env fallback QWEN_TOKEN_JSON container
-        // deploys ke liye (Render — file mount nahi hota wahan).
-        let token_path = std::env::var("QWEN_TOKEN_FILE")
-            .unwrap_or_else(|_| {
-                "/home/kali/Rev/qwen_token.json".into()
-            });
-        if let Some(qa) = QwenAdapter::from_env_or_file(&token_path) {
-            adapters.push(Box::new(qa));
-        }
+        // qwen — SHARED pool (QWEN_CELL). REST /api/accounts/* isi pool
+        // ko mutate karta hai, isliye registry ka qwen adapter bhi yahi
+        // instance use karta hai. File/env token sirf initial seed hai;
+        // DB me accounts hain to unhi se serve hota hai.
+        let pool = {
+            let a = qwen::QwenAdapter::from_env_or_file(
+                &std::env::var("QWEN_TOKEN_FILE")
+                    .unwrap_or_else(|_| "/home/kali/Rev/qwen_token.json".into()));
+            let cell = QWEN_CELL.get_or_init(||
+                std::sync::Arc::new(a.unwrap_or_else(qwen::QwenAdapter::empty)));
+            cell.clone()
+        };
+        adapters.push(Box::new(PoolShim(pool)));
         // deepseek token file (browser login se harvested). Env fallback
         // DS_TOKEN_JSON same {"token": ..., "uid": ...} format me.
         let ds_path = std::env::var("DS_TOKEN_FILE")
@@ -267,6 +306,293 @@ fn check_key(state: &AppState, headers: &HeaderMap) -> bool {
 async fn health() -> Json<Value> {
     Json(json!({"status": "ok", "ts": now()}))
 }
+
+/// GET / — UI dashboard (static/index.html embed).
+async fn ui() -> Html<&'static str> {
+    Html(include_str!("../static/index.html"))
+}
+
+// ---------------- qwen multi-account layer ----------------
+// QWEN_CELL — runtime-mutable Qwen pool. Registry ka QwenAdapter
+// hi isi ko share karta hai (Arc). DB accounts startup pe load hote
+// hain; REST endpoints runtime pe add/remove/weight karte hain.
+
+static QWEN_CELL: OnceLock<std::sync::Arc<qwen::QwenAdapter>> =
+    OnceLock::new();
+
+fn qwen_pool() -> std::sync::Arc<qwen::QwenAdapter> {
+    QWEN_CELL.get_or_init(|| {
+        let a = qwen::QwenAdapter::from_env_or_file(
+            &std::env::var("QWEN_TOKEN_FILE")
+                .unwrap_or_else(|_| "/home/kali/Rev/qwen_token.json".into()));
+        std::sync::Arc::new(a.unwrap_or_else(qwen::QwenAdapter::empty))
+    })
+    .clone()
+}
+
+/// DB se qwen accounts load karke pool me daalo (startup + har
+/// accounts REST change ke baad call hota hai).
+fn reload_qwen_from_db(state: &AppState) {
+    let pool = qwen_pool();
+    {
+        let db = state.db.lock().unwrap();
+        let ok = db.prepare(
+            "SELECT email, token, umid, weight FROM accounts \
+             WHERE provider='qwen' AND status='active' AND token != ''");
+        if let Ok(mut stmt) = ok {
+            let rows = stmt.query_map([], |r| {
+                Ok(qwen::QwenAccount {
+                    email: r.get(0)?, token: r.get(1)?,
+                    umid: r.get(2)?, weight: r.get::<_, i64>(3)?.max(1) as u32,
+                })
+            });
+            if let Ok(rows) = rows {
+                let accs: Vec<_> = rows.filter_map(|x| x.ok()).collect();
+                let mut g = pool.accounts.write().unwrap();
+                *g = accs;
+                eprintln!("[qwen] {} account(s) DB se loaded", g.len());
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct LoginReq {
+    email: String,
+    password: String,
+    #[serde(default)]
+    weight: Option<u32>,
+    label: Option<String>,
+}
+
+/// POST /api/accounts/login — email/pass se Qwen login, token harvest,
+/// DB me store, pool me add. Direct HTTP (no browser) — /api/v2/auths/signin.
+async fn accounts_login(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<LoginReq>,
+) -> Response {
+    if !check_key(&state, &headers) {
+        return unauthorized();
+    }
+    let client = match reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
+                     AppleWebKit/537.36 (KHTML, like Gecko) \
+                     Chrome/131.0.0.0 Safari/537.36")
+        .cookie_store(true)
+        .build() {
+        Ok(c) => c, Err(e) => return err_json(500, &e.to_string()),
+    };
+    // WAF warmup
+    let _ = client.get("https://chat.qwen.ai/")
+        .header("accept", "text/html,application/xhtml+xml,\
+             application/xml;q=0.9,*/*;q=0.8")
+        .send().await;
+    let r = client
+        .post("https://chat.qwen.ai/api/v2/auths/signin")
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/plain, */*")
+        .header("source", "web")
+        .header("origin", "https://chat.qwen.ai")
+        .header("referer", "https://chat.qwen.ai/auth/login")
+        .json(&json!({
+            "email": body.email,
+            "password": body.password,
+        }))
+        .send()
+        .await;
+    let r = match r { Ok(r) => r, Err(e) =>
+        return err_json(502, &format!("qwen signin: {e}")) };
+    if r.status().as_u16() != 200 {
+        return err_json(r.status().as_u16(),
+            &format!("qwen signin HTTP {}", r.status()));
+    }
+    let v: Value = match r.json().await {
+        Ok(v) => v, Err(e) => return err_json(502, &e.to_string()) };
+    // {"success": true, "data": {"token": "..."}} shape
+    let token = v.pointer("/data/token")
+        .and_then(|t| t.as_str()).unwrap_or("");
+    if !v.get("success").and_then(|s| s.as_bool()).unwrap_or(false)
+        || token.is_empty() {
+        return err_json(401, "login failed — email/pass galat ya \
+            account locked");
+    }
+    let weight = body.weight.unwrap_or(100).clamp(1, 100);
+    let id = uuid::Uuid::new_v4().to_string();
+    {
+        let db = state.db.lock().unwrap();
+        // same email = replace (dost ne dobara login kiya to refresh)
+        let _ = db.execute(
+            "DELETE FROM accounts WHERE provider='qwen' AND email=?1",
+            [&body.email]);
+        let _ = db.execute(
+            "INSERT INTO accounts (id, provider, label, status, added_at, \
+             email, token, umid, weight) VALUES (?1,'qwen',?2,'active',?3,\
+             ?4,?5,'',?6)",
+            rusqlite::params![
+                id, body.label.clone().unwrap_or_default(),
+                now(), body.email, token, weight as i64],
+        );
+    }
+    reload_qwen_from_db(&state);
+    let pool_count = qwen_pool().account_count();
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": true, "email": body.email, "weight": weight,
+            "pool_size": pool_count,
+        })),
+    ).into_response()
+}
+
+/// POST /api/accounts/token — token seedha paste (login bypass).
+#[derive(Deserialize)]
+struct TokenReq {
+    email: String,
+    token: String,
+    #[serde(default)]
+    umid: Option<String>,
+    #[serde(default)]
+    weight: Option<u32>,
+    label: Option<String>,
+}
+
+async fn accounts_add_token(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<TokenReq>,
+) -> Response {
+    if !check_key(&state, &headers) {
+        return unauthorized();
+    }
+    if body.token.is_empty() {
+        return err_json(400, "token empty");
+    }
+    let weight = body.weight.unwrap_or(100).clamp(1, 100);
+    let id = uuid::Uuid::new_v4().to_string();
+    {
+        let db = state.db.lock().unwrap();
+        let _ = db.execute(
+            "DELETE FROM accounts WHERE provider='qwen' AND email=?1",
+            [&body.email]);
+        let _ = db.execute(
+            "INSERT INTO accounts (id, provider, label, status, added_at, \
+             email, token, umid, weight) VALUES (?1,'qwen',?2,'active',?3,\
+             ?4,?5,?6,?7)",
+            rusqlite::params![
+                id, body.label.clone().unwrap_or_default(),
+                now(), body.email, body.token,
+                body.umid.clone().unwrap_or_default(), weight as i64],
+        );
+    }
+    reload_qwen_from_db(&state);
+    (
+        StatusCode::OK,
+        Json(json!({"ok": true, "email": body.email,
+            "pool_size": qwen_pool().account_count()})),
+    ).into_response()
+}
+
+/// DELETE /api/accounts/:email — remove from DB + pool.
+async fn accounts_remove(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(email): Path<String>,
+) -> Response {
+    if !check_key(&state, &headers) {
+        return unauthorized();
+    }
+    let n = {
+        let db = state.db.lock().unwrap();
+        db.execute(
+            "DELETE FROM accounts WHERE provider='qwen' AND email=?1",
+            [&email]).unwrap_or(0)
+    };
+    reload_qwen_from_db(&state);
+    (
+        StatusCode::OK,
+        Json(json!({"ok": n > 0, "removed": n,
+            "pool_size": qwen_pool().account_count()})),
+    ).into_response()
+}
+
+/// PATCH /api/accounts/:email — weight update (points).
+#[derive(Deserialize)]
+struct WeightReq { weight: u32 }
+
+async fn accounts_weight(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(email): Path<String>,
+    Json(body): Json<WeightReq>,
+) -> Response {
+    if !check_key(&state, &headers) {
+        return unauthorized();
+    }
+    let w = body.weight.clamp(1, 100) as i64;
+    {
+        let db = state.db.lock().unwrap();
+        db.execute(
+            "UPDATE accounts SET weight=?1 WHERE provider='qwen' AND email=?2",
+            rusqlite::params![w, email]).unwrap_or(0);
+    }
+    reload_qwen_from_db(&state);
+    (
+        StatusCode::OK,
+        Json(json!({"ok": true, "email": email, "weight": w})),
+    ).into_response()
+}
+
+/// GET /api/accounts — pool + DB snapshot (tokens masked).
+async fn accounts_list(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    if !check_key(&state, &headers) {
+        return unauthorized();
+    }
+    let db = state.db.lock().unwrap();
+    let mut out = Vec::new();
+    if let Ok(mut stmt) = db.prepare(
+        "SELECT email, label, status, weight, added_at, \
+         substr(token,1,12)||'...' FROM accounts WHERE provider='qwen'") {
+        let rows = stmt.query_map([], |r| {
+            Ok(json!({
+                "email": r.get::<_, String>(0)?,
+                "label": r.get::<_, String>(1)?,
+                "status": r.get::<_, String>(2)?,
+                "weight": r.get::<_, i64>(3)?,
+                "added_at": r.get::<_, i64>(4)?,
+                "token_hint": r.get::<_, String>(5)?,
+            }))
+        });
+        if let Ok(rows) = rows {
+            for x in rows.flatten() { out.push(x); }
+        }
+    }
+    let pool = qwen_pool();
+    let mut live = Vec::new();
+    {
+        let g = pool.accounts.read().unwrap();
+        for a in g.iter() {
+            live.push(json!({
+                "email": a.email, "weight": a.weight,
+                "token_hint": format!("{}...", &a.token[..10.min(a.token.len())]),
+            }));
+        }
+    }
+    Json(json!({"accounts": out, "live_pool": live,
+        "rpm_limit": std::env::var("REV_RPM").ok()})).into_response()
+}
+
+fn err_json(code: u16, msg: &str) -> Response {
+    (
+        StatusCode::from_u16(code).unwrap_or(
+            StatusCode::INTERNAL_SERVER_ERROR),
+        Json(json!({"error": {"message": msg}})),
+    ).into_response()
+}
+
 
 async fn models(
     State(state): State<Arc<AppState>>,
@@ -638,10 +964,23 @@ async fn main() {
 
     let state = Arc::new(AppState { db: Mutex::new(conn) });
 
+    // DB me qwen accounts hain to pool me load karo (REST additions
+    // persist hoti hain — restart pe bhi yaad rehte hain).
+    reload_qwen_from_db(&state);
+    // DB empty + file/env token hai → pool me wo ek seed account rahe.
+    if qwen_pool().account_count() == 0 {
+        let _ = REGISTRY_CELL.get(); // pool init trigger
+    }
+
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/models", get(models))
         .route("/v1/chat/completions", post(completions))
+        .route("/api/accounts", get(accounts_list))
+        .route("/api/accounts/login", post(accounts_login))
+        .route("/api/accounts/token", post(accounts_add_token))
+        .route("/api/accounts/{email}", delete(accounts_remove).patch(accounts_weight))
+        .route("/", get(ui))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));

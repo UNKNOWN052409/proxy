@@ -1,14 +1,14 @@
-// Qwen adapter — ported from the live-proven Python QwenConnector
-// (/home/kali/Rev/universal_bridge.py, verified SERVER_E2E_OK today).
-// Single-account: user's own guest session token from qwen_token.json.
-// Design: NO scraping, NO anti-detection evasion, NO multi-account
-// rotation, NO captcha solving.
+// Qwen adapter — multi-account pool with weighted rotation.
+// Ported from the live-proven Python QwenConnector (universal_bridge.py,
+// SERVER_E2E_OK). Accounts: user + dost apne email/pass se login karte hain
+// (REST /api/accounts/login) ya token seedha paste karte hain.
+// Design: NO scraping, NO anti-detection evasion, NO captcha solving.
+// History isolation: har completion ke baad chat DELETE — account ke
+// Qwen UI me proxy wali history kabhi nahi dikhti.
 //
 // TLS caveat: reqwest+rustls ka JA3 Chrome se match nahi karta —
-// abhi WAF cookie warmup se 200 mil raha hai (aaj Python curl_cffi
-// chrome131 ke saath proven; Rust me bhi yahi recipe). Agar Qwen
-// kabhi TLS fingerprint reject kare, rquest crate (Chrome
-// impersonation) pe switch karna hoga.
+// WAF cookie warmup se 200 mil raha hai. Agar Qwen kabhi TLS
+// fingerprint reject kare, rquest crate pe switch karna hoga.
 
 use crate::{Adapter};
 use async_trait::async_trait;
@@ -16,52 +16,12 @@ use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
-pub struct QwenAdapter {
-    pub token: String,
-    pub umid: String,
-}
-
 fn now_secs() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
 }
 
-impl QwenAdapter {
-    pub fn from_file(path: &str) -> Option<Self> {
-        let raw = std::fs::read_to_string(path).ok()?;
-        let v: Value = serde_json::from_str(&raw).ok()?;
-        Some(Self {
-            token: v.get("token")?.as_str()?.to_string(),
-            umid: v
-                .get("umid")
-                .and_then(|u| u.as_str())
-                .unwrap_or("")
-                .to_string(),
-        })
-    }
-
-    /// Env fallback for container deploys (Render): QWEN_TOKEN_JSON holds
-    /// the same {"token": "...", "umid": "..."} JSON so no file mount is
-    /// needed. File wins if both exist.
-    pub fn from_env_or_file(path: &str) -> Option<Self> {
-        if let Some(qa) = Self::from_file(path) {
-            return Some(qa);
-        }
-        let raw = std::env::var("QWEN_TOKEN_JSON").ok()?;
-        let v: Value = serde_json::from_str(&raw).ok()?;
-        let token = v.get("token")?.as_str()?.to_string();
-        if token.is_empty() {
-            return None;
-        }
-        Some(Self {
-            token,
-            umid: v.get("umid").and_then(|u| u.as_str()).unwrap_or("").to_string(),
-        })
-    }
-}
-
 // ctime-style string: "Mon Aug 31 09:00:00 2026"
 fn ctime_now() -> String {
-    // epoch -> days since 1970 -> simple civil date conversion
     let secs = now_secs();
     let days = secs / 86400;
     let tod = secs % 86400;
@@ -84,6 +44,117 @@ fn ctime_now() -> String {
     let wd = WDAY[(days.rem_euclid(7)) as usize];
     format!("{}, {} {} {} {:02}:{:02}:{:02} GMT",
             wd, d, MON[(mth - 1) as usize], year, h, m, s)
+}
+
+/// Ek Qwen account — token + rotation weight (points).
+#[derive(Clone)]
+pub struct QwenAccount {
+    pub email: String,
+    pub token: String,
+    pub umid: String,
+    pub weight: u32,   // 1..=100 — jitne points, utna zyada use
+}
+
+pub struct QwenAdapter {
+    pub accounts: std::sync::RwLock<Vec<QwenAccount>>,
+    pub cursor: std::sync::atomic::AtomicU64,
+    pub umid: String, // legacy env/file token ka umid
+}
+
+impl QwenAdapter {
+    pub fn from_file(path: &str) -> Option<Self> {
+        let raw = std::fs::read_to_string(path).ok()?;
+        let v: Value = serde_json::from_str(&raw).ok()?;
+        let token = v.get("token")?.as_str()?.to_string();
+        if token.is_empty() {
+            return None;
+        }
+        Some(Self {
+            accounts: std::sync::RwLock::new(vec![QwenAccount {
+                email: "primary".into(),
+                token,
+                umid: v.get("umid").and_then(|u| u.as_str()).unwrap_or("").into(),
+                weight: 100,
+            }]),
+            cursor: std::sync::atomic::AtomicU64::new(0),
+            umid: v.get("umid").and_then(|u| u.as_str()).unwrap_or("").into(),
+        })
+    }
+
+    /// Env fallback for container deploys (Render): QWEN_TOKEN_JSON holds
+    /// the same {"token": "...", "umid": "..."} JSON. File wins if both exist.
+    pub fn from_env_or_file(path: &str) -> Option<Self> {
+        if let Some(qa) = Self::from_file(path) {
+            return Some(qa);
+        }
+        let raw = std::env::var("QWEN_TOKEN_JSON").ok()?;
+        let v: Value = serde_json::from_str(&raw).ok()?;
+        let token = v.get("token")?.as_str()?.to_string();
+        if token.is_empty() {
+            return None;
+        }
+        Some(Self {
+            accounts: std::sync::RwLock::new(vec![QwenAccount {
+                email: "primary".into(),
+                token,
+                umid: v.get("umid").and_then(|u| u.as_str()).unwrap_or("").into(),
+                weight: 100,
+            }]),
+            cursor: std::sync::atomic::AtomicU64::new(0),
+            umid: v.get("umid").and_then(|u| u.as_str()).unwrap_or("").into(),
+        })
+    }
+
+    /// Empty pool — sirf DB accounts se populate hoga.
+    pub fn empty() -> Self {
+        Self {
+            accounts: std::sync::RwLock::new(Vec::new()),
+            cursor: std::sync::atomic::AtomicU64::new(0),
+            umid: String::new(),
+        }
+    }
+
+    pub fn add_account(&self, acc: QwenAccount) {
+        let mut g = self.accounts.write().unwrap();
+        // same email replace, warna add
+        if let Some(i) = g.iter().position(|a| a.email == acc.email) {
+            g[i] = acc;
+        } else {
+            g.push(acc);
+        }
+    }
+
+    pub fn remove_account(&self, email: &str) -> bool {
+        let mut g = self.accounts.write().unwrap();
+        let n = g.len();
+        g.retain(|a| a.email != email);
+        g.len() < n
+    }
+
+    pub fn account_count(&self) -> usize {
+        self.accounts.read().unwrap().len()
+    }
+
+    /// Weighted pick — cumulative weights me round-robin cursor.
+    /// weight 30 wala account weight 10 wale se 3x zyada serve karega.
+    pub fn pick(&self) -> Option<QwenAccount> {
+        let g = self.accounts.read().unwrap();
+        if g.is_empty() {
+            return None;
+        }
+        let total: u64 = g.iter()
+            .map(|a| a.weight.max(1) as u64).sum();
+        let n = self.cursor.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut slot = n % total;
+        for a in g.iter() {
+            let w = a.weight.max(1) as u64;
+            if slot < w {
+                return Some(a.clone());
+            }
+            slot -= w;
+        }
+        g.last().cloned()
+    }
 }
 
 #[async_trait]
@@ -123,6 +194,11 @@ impl QwenAdapter {
         model: &str,
         tx: mpsc::Sender<String>,
     ) -> Result<(), String> {
+        let acc = self.pick()
+            .ok_or("no qwen account — /api/accounts/login se add karo")?;
+        let token = acc.token.clone();
+        let umid = if acc.umid.is_empty() { self.umid.clone() } else { acc.umid.clone() };
+        let acc_email = acc.email.clone();
         let real_model = match model {
             "qwen" | "qwen-plus" | "qwen3.7-plus" => "qwen3.7-plus",
             "qwen-max" | "qwen3.8-max" => "qwen3.8-max",
@@ -150,7 +226,7 @@ impl QwenAdapter {
 
         // token cookie manually — reqwest cookie_store domain
         // matching ke saath issues se bachne ke liye header use karo
-        let cookie = format!("token={}", self.token);
+        let cookie = format!("token={}", token);
 
         // 2. chats/new
         let r1 = client
@@ -163,11 +239,11 @@ impl QwenAdapter {
             .header("bx-v", "2.5.37")
             .header("timezone", ctime_now())
             .header("bx-ua", "default_not_value")
-            .header("bx-umidtoken", &self.umid)
+            .header("bx-umidtoken", &umid)
             .header("origin", "https://chat.qwen.ai")
             .header("referer", "https://chat.qwen.ai/c/new-chat")
             .header("x-request-id",
-                    uuid::Uuid::new_v4().to_string())
+                uuid::Uuid::new_v4().to_string())
             .header("cookie", &cookie)
             .json(&json!({
                 "chatId": "",
@@ -245,7 +321,7 @@ impl QwenAdapter {
             .header("bx-v", "2.5.37")
             .header("timezone", ctime_now())
             .header("bx-ua", "default_not_value")
-            .header("bx-umidtoken", &self.umid)
+            .header("bx-umidtoken", &umid)
             .header("origin", "https://chat.qwen.ai")
             .header("referer", format!("https://chat.qwen.ai/c/{}", chat_id))
             .header("x-request-id", uuid::Uuid::new_v4().to_string())
@@ -330,8 +406,27 @@ impl QwenAdapter {
             }
             if finished { break; }
         }
+
+        // 5. history isolation — chat DELETE (fire-and-forget style).
+        // Account owner ke Qwen UI me proxy chats kabhi nahi dikhen.
+        let _ = client
+            .delete(format!(
+                "https://chat.qwen.ai/api/v2/chats/{}", chat_id))
+            .header("accept", "application/json, text/plain, */*")
+            .header("source", "web")
+            .header("version", "0.2.87")
+            .header("bx-v", "2.5.37")
+            .header("timezone", ctime_now())
+            .header("bx-ua", "default_not_value")
+            .header("bx-umidtoken", &umid)
+            .header("origin", "https://chat.qwen.ai")
+            .header("referer", "https://chat.qwen.ai/c/new-chat")
+            .header("x-request-id", uuid::Uuid::new_v4().to_string())
+            .header("cookie", &cookie)
+            .send()
+            .await;
+        eprintln!("[qwen] account={} model={} done, chat deleted",
+            acc_email, real_model);
         Ok(())
     }
 }
-
-// base_headers helper unused — removed.
