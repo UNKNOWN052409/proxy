@@ -28,6 +28,24 @@ fn now_secs() -> i64 {
 }
 
 impl DeepSeekAdapter {
+    /// Env fallback for container deploys (Render): DS_TOKEN_JSON holds the
+    /// same {"token": ..., "uid": ...} JSON. File wins if both exist.
+    pub fn from_env_or_file(path: &str) -> Option<Self> {
+        if let Some(da) = Self::from_file(path) {
+            return Some(da);
+        }
+        let raw = std::env::var("DS_TOKEN_JSON").ok()?;
+        let v: Value = serde_json::from_str(&raw).ok()?;
+        let token = v.get("token")?.as_str()?.to_string();
+        if token.is_empty() {
+            return None;
+        }
+        Some(Self {
+            token,
+            uid: v.get("uid").and_then(|u| u.as_str()).unwrap_or("").to_string(),
+        })
+    }
+
     pub fn from_file(path: &str) -> Option<Self> {
         let raw = std::fs::read_to_string(path).ok()?;
         let v: Value = serde_json::from_str(&raw).ok()?;

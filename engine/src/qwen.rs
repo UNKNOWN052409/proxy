@@ -38,6 +38,25 @@ impl QwenAdapter {
                 .to_string(),
         })
     }
+
+    /// Env fallback for container deploys (Render): QWEN_TOKEN_JSON holds
+    /// the same {"token": "...", "umid": "..."} JSON so no file mount is
+    /// needed. File wins if both exist.
+    pub fn from_env_or_file(path: &str) -> Option<Self> {
+        if let Some(qa) = Self::from_file(path) {
+            return Some(qa);
+        }
+        let raw = std::env::var("QWEN_TOKEN_JSON").ok()?;
+        let v: Value = serde_json::from_str(&raw).ok()?;
+        let token = v.get("token")?.as_str()?.to_string();
+        if token.is_empty() {
+            return None;
+        }
+        Some(Self {
+            token,
+            umid: v.get("umid").and_then(|u| u.as_str()).unwrap_or("").to_string(),
+        })
+    }
 }
 
 // ctime-style string: "Mon Aug 31 09:00:00 2026"

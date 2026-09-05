@@ -25,7 +25,7 @@ use serde_json::{json, Value};
 use std::{
     convert::Infallible,
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::mpsc;
@@ -128,20 +128,22 @@ impl Registry {
         let mut adapters: Vec<Box<dyn Adapter>> =
             vec![Box::new(EchoAdapter)];
         // qwen token file ho to plug karo (single-account, user ka
-        // apna guest token)
+        // apna guest token). Env fallback QWEN_TOKEN_JSON container
+        // deploys ke liye (Render — file mount nahi hota wahan).
         let token_path = std::env::var("QWEN_TOKEN_FILE")
             .unwrap_or_else(|_| {
                 "/home/kali/Rev/qwen_token.json".into()
             });
-        if let Some(qa) = QwenAdapter::from_file(&token_path) {
+        if let Some(qa) = QwenAdapter::from_env_or_file(&token_path) {
             adapters.push(Box::new(qa));
         }
-        // deepseek token file (browser login se harvested)
+        // deepseek token file (browser login se harvested). Env fallback
+        // DS_TOKEN_JSON same {"token": ..., "uid": ...} format me.
         let ds_path = std::env::var("DS_TOKEN_FILE")
             .unwrap_or_else(|_| {
                 "/home/kali/Rev/deepseek_token.txt".into()
             });
-        if let Some(da) = DeepSeekAdapter::from_file(&ds_path) {
+        if let Some(da) = DeepSeekAdapter::from_env_or_file(&ds_path) {
             adapters.push(Box::new(da));
         }
         // generic captured flows — auto_pipeline.py ke config(s).
@@ -188,6 +190,54 @@ impl Registry {
     pub fn names(&self) -> Vec<&'static str> {
         self.inner.iter().map(|a| a.name()).collect()
     }
+}
+
+// ---------------- RPM limiter ----------------
+// Per-key sliding-window rate limit. REV_RPM=0 ya unset = unlimited.
+// 429 + Retry-After header return hota hai jab window full ho — client
+// (Hermes/OpenAI SDK) standard retry semantics follow karta hai.
+struct RpmLimiter {
+    window_secs: i64,
+    max_rpm: i64,
+    hits: Mutex<Vec<(i64, String)>>, // (ts, key)
+}
+
+impl RpmLimiter {
+    fn from_env() -> Self {
+        let rpm = std::env::var("REV_RPM")
+            .ok()
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .unwrap_or(0);
+        Self { window_secs: 60, max_rpm: rpm, hits: Mutex::new(Vec::new()) }
+    }
+
+    /// Ok(()) ya Err(retry_after_secs)
+    fn allow(&self, key: &str) -> Result<(), i64> {
+        if self.max_rpm <= 0 {
+            return Ok(());
+        }
+        let now = now();
+        let mut h = self.hits.lock().unwrap();
+        h.retain(|(ts, _)| now - *ts < self.window_secs);
+        let mine = h.iter().filter(|(_, k)| k == key).count() as i64;
+        if mine >= self.max_rpm {
+            // sabse purani is-key hit kab window se bahar jayegi
+            let oldest = h.iter()
+                .filter(|(_, k)| k == key)
+                .map(|(ts, _)| *ts)
+                .min()
+                .unwrap_or(now);
+            return Err(oldest + self.window_secs - now);
+        }
+        h.push((now, key.to_string()));
+        Ok(())
+    }
+}
+
+static RPM_CELL: OnceLock<RpmLimiter> = OnceLock::new();
+
+fn rpm() -> &'static RpmLimiter {
+    RPM_CELL.get_or_init(RpmLimiter::from_env)
 }
 
 // ---------------- auth ----------------
@@ -351,6 +401,26 @@ async fn completions(
 ) -> Response {
     if !check_key(&state, &headers) {
         return unauthorized();
+    }
+    // RPM limit (REV_RPM env) — per-key sliding window, 429 + Retry-After.
+    let api_key_str = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|a| a.strip_prefix("Bearer ").map(|s| s.to_string()))
+        .unwrap_or_default();
+    if let Err(retry_after) = rpm().allow(&api_key_str) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [
+                ("retry-after", retry_after.to_string()),
+                ("content-type", "application/json".into()),
+            ],
+            Json(json!({"error": {"message":
+                format!("rate limit: {} requests/min reached; retry in {}s",
+                    std::env::var("REV_RPM").unwrap_or_default(), retry_after),
+                "type": "rate_limit_error"}})),
+        )
+            .into_response();
     }
     let model = body.model.clone().unwrap_or_else(|| "echo".into());
     let prompt = render_prompt_full(
@@ -543,7 +613,6 @@ impl RegOnce {
     }
 }
 
-use std::sync::OnceLock;
 use futures_util::StreamExt;
 
 // ---------------- main ----------------
@@ -556,7 +625,12 @@ async fn main() {
     }
 
     let cfg = load_config();
-    let port = cfg.port.unwrap_or(8000);
+    let port = cfg.port.unwrap_or_else(|| {
+        std::env::var("PORT")
+            .ok()
+            .and_then(|p| p.trim().parse().ok())
+            .unwrap_or(8000)
+    });
     let db_path = cfg.db_path.clone().unwrap_or_else(|| "rev.db".into());
 
     let conn = Connection::open(&db_path).expect("rev.db open fail");
@@ -575,6 +649,28 @@ async fn main() {
         .await
         .expect("bind fail");
     println!("revd listening on http://0.0.0.0:{}", port);
+
+    // ---- keepalive: Render free tier 15 min idle pe service spin-down
+    // karta hai. REV_KEEPALIVE_URL set ho (e.g. https://<app>.onrender.com/health)
+    // to har 10 min self-ping — service hamesha warm rehti hai.
+    if let Ok(ping_url) = std::env::var("REV_KEEPALIVE_URL") {
+        if !ping_url.is_empty() {
+            tokio::spawn(async move {
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(10))
+                    .build()
+                    .unwrap();
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+                    match client.get(&ping_url).send().await {
+                        Ok(r) => println!(
+                            "[keepalive] {} -> {}", ping_url, r.status()),
+                        Err(e) => eprintln!("[keepalive] err: {}", e),
+                    }
+                }
+            });
+        }
+    }
 
     axum::serve(listener, app)
         .with_graceful_shutdown(async {

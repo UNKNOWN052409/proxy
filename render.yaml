@@ -20,3 +20,26 @@ services:
         sync: false
       - key: NEXTAUTH_SECRET
         sync: false
+
+  # revd — Rust Qwen/DeepSeek adapter engine (single-account guest tokens).
+  # /v1/chat/completions + /v1/models + /health, per-key RPM limit, anti-sleep
+  # self-ping. Token env vars dashboard se set hote hain (sync: false).
+  - type: web
+    name: rev-qwen-engine
+    runtime: docker
+    plan: free
+    dockerfilePath: ./engine/Dockerfile
+    dockerContext: ./engine
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: QWEN_TOKEN_JSON
+        sync: false
+      - key: DS_TOKEN_JSON
+        sync: false
+      - key: REV_RPM
+        sync: false
+      - key: REV_KEEPALIVE_URL
+        sync: false

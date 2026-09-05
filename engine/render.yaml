@@ -1,0 +1,28 @@
+# Render blueprint — revd (Rust Qwen/DS proxy engine)
+# Deploy: Render dashboard -> New -> Blueprint -> repo select karo.
+# Ye file repo root me engine/render.yaml ke roop me bhi jayegi.
+services:
+  - type: web
+    name: rev-qwen-engine
+    runtime: docker
+    plan: free
+    dockerfilePath: ./engine/Dockerfile
+    dockerContext: ./engine
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8000
+      # apna guest token JSON: {"token":"...","umid":""}
+      - key: QWEN_TOKEN_JSON
+        sync: false
+      # deepseek token JSON: {"token":"...","uid":"..."} (optional)
+      - key: DS_TOKEN_JSON
+        sync: false
+      # per-key requests/minute cap (0/unset = unlimited)
+      - key: REV_RPM
+        sync: false
+      # self-ping URL — deploy ke baad Render dashboard me
+      # https://<service>.onrender.com/health set karna (anti-sleep)
+      - key: REV_KEEPALIVE_URL
+        sync: false
